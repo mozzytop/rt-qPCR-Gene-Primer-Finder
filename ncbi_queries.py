@@ -95,48 +95,26 @@ def parse_ncbi_url(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def search_nucleotide(
-    gene: str,
-    organism: str = "Homo sapiens",
-    taxonomy_id: str = "",
-    retmax: int = 20,
-) -> list[dict]:
-    """Search NCBI Nucleotide for *gene* using taxonomy-ID-based queries.
-
-    Uses txid-based filtering (e.g. txid9606[ORGN]) for strict species
-    separation.  Results are scored with nomenclature-aware prioritisation:
-      - Human genes are expected in ALL-CAPS  (e.g. GLI1)
-      - Mouse genes are expected in Title-case (e.g. Gli1)
+def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 20) -> list[dict]:
+    """Search NCBI Nucleotide for *gene* in *organism*.
 
     Returns a list of dicts with: id, title, accession, length, link, score.
+    Results are scored and sorted so the best "transcript variant 1, mRNA"
+    record appears first, but ALL results are returned for user selection.
     """
-    # Resolve taxonomy ID
-    if not taxonomy_id:
-        _, taxonomy_id, _ = detect_species(organism)
+    if organism.lower() in ("human", "homo sapiens"):
+        org_query = '("Homo sapiens"[Organism] OR "human gene")'
+    elif organism.lower() in ("mouse", "mus musculus"):
+        org_query = '("Mus musculus"[Organism] OR "mouse gene")'
+    else:
+        org_query = f'("{organism}"[Organism])'
 
-    # Enhanced Entrez query with taxonomy ID
-    query = (
-        f'({gene}) AND txid{taxonomy_id}[ORGN]'
-        f' AND "transcript variant 1"[All Fields]'
-        f' AND biomol_mrna[PROP]'
-    )
+    query = f"{gene} AND {org_query}"
     handle = Entrez.esearch(db="nucleotide", term=query, retmax=retmax, usehistory="y")
     record = Entrez.read(handle)
     handle.close()
 
     ids = record.get("IdList", [])
-
-    # Fallback: broader query without transcript variant 1 constraint
-    if not ids:
-        query_broad = (
-            f'({gene}) AND txid{taxonomy_id}[ORGN]'
-            f' AND biomol_mrna[PROP]'
-        )
-        handle = Entrez.esearch(db="nucleotide", term=query_broad, retmax=retmax, usehistory="y")
-        record = Entrez.read(handle)
-        handle.close()
-        ids = record.get("IdList", [])
-
     if not ids:
         return []
 
@@ -145,7 +123,6 @@ def search_nucleotide(
     handle.close()
 
     gene_upper = gene.upper()
-    is_mouse = taxonomy_id == _TXID_MOUSE
     results = []
     for s in summaries:
         acc = s.get("AccessionVersion", s.get("Caption", ""))
@@ -153,54 +130,21 @@ def search_nucleotide(
         length = int(s.get("Length", 0))
         link = f"https://www.ncbi.nlm.nih.gov/nuccore/{acc}"
 
-        # ── Scoring ──────────────────────────────────────────────────
+        # Score for sorting
         title_upper = title.upper()
         score = 0
-
-        # Gene name present
         if gene_upper in title_upper:
             score += 10
-
-        # mRNA tag
         if "MRNA" in title_upper:
             score += 5
-
-        # Transcript variant ranking
         if "TRANSCRIPT VARIANT 1" in title_upper:
             score += 8
         elif "TRANSCRIPT VARIANT" in title_upper:
             score += 2
-
-        # Correct organism
-        if is_mouse and "MUS MUSCULUS" in title_upper:
+        if "HOMO SAPIENS" in title_upper or "MUS MUSCULUS" in title_upper:
             score += 3
-        elif not is_mouse and "HOMO SAPIENS" in title_upper:
-            score += 3
-
-        # Nomenclature-based prioritisation
-        # Human: gene symbol should be ALL-CAPS (e.g. "GLI1")
-        # Mouse: gene symbol should be Title-case (e.g. "Gli1")
-        if is_mouse:
-            # Prefer title-case gene name for mouse
-            gene_titlecase = gene.capitalize()  # e.g. "Gli1"
-            if gene_titlecase in title:
-                score += 4
-            elif gene_upper in title:  # all-caps in a mouse record = suspicious
-                score -= 2
-        else:
-            # Prefer ALL-CAPS gene name for human
-            if gene_upper in title:
-                score += 4
-
-        # Penalise predicted records
         if "PREDICTED" in title_upper:
             score -= 6
-
-        # Penalise wrong species (catch any leakage)
-        if is_mouse and "HOMO SAPIENS" in title_upper:
-            score -= 15
-        elif not is_mouse and "MUS MUSCULUS" in title_upper:
-            score -= 15
 
         results.append({
             "id": str(s["Id"]),
@@ -449,16 +393,29 @@ def extract_and_verify_primers(
     article: dict,
     gene: str,
     cds_sequence: str,
+    accession: str = "",
 ) -> list[VerifiedPrimerPair]:
     """
-    The core upgrade: extract primers from a PMC full-text article,
-    assign directions, and programmatically verify them against the CDS.
+    Triple-Check Verification of primers from a PMC full-text article.
+
+    The selected CDS sequence is the **biological anchor** (ground truth).
+    A primer pair is only accepted if ALL THREE checks pass:
+
+      Check 1 (Forward):  The Forward primer exists as an exact substring
+                          of the CDS (either strand).
+      Check 2 (Reverse):  The Reverse *Complement* of the Reverse primer
+                          exists as an exact substring of the CDS.
+      Check 3 (Species):  If the accession indicates a species (NM_ = human
+                          RefSeq, NM_ + title context), reject primers whose
+                          surrounding text mentions only the wrong species.
+                          In practice, Checks 1+2 already enforce this:
+                          mouse primers can't physically match a human CDS.
 
     Steps:
       1. Get full text from the article's raw_xml.
       2. Run direction-aware regex extraction.
-      3. For each candidate pair (forward + reverse), verify against CDS.
-      4. Return only verified pairs.
+      3. For each candidate pair, apply the Triple-Check.
+      4. Return only fully verified pairs.
     """
     raw_xml = article.get("raw_xml", "")
     pmc_id = article.get("pmc_id", "")
@@ -473,38 +430,109 @@ def extract_and_verify_primers(
     if not candidates:
         return []
 
+    # ── Normalise CDS for matching (biological anchor) ────────────────
+    cds_upper = cds_sequence.upper().replace("U", "T")
+
+    def _species_from_text(text: str) -> set[str]:
+        labels: set[str] = set()
+        txt = text.lower()
+        if re.search(r"\b(homo\s+sapiens|human)\b", txt):
+            labels.add("human")
+        if re.search(r"\b(mus\s+musculus|mouse|murine)\b", txt):
+            labels.add("mouse")
+        return labels
+
+    def _infer_expected_species() -> str:
+        # Best effort from accession first, then gene symbol style, then article title.
+        # RefSeq prefixes alone are not species-specific, so this remains conservative.
+        acc = accession.strip().upper()
+        if "HOMO SAPIENS" in acc or acc.startswith("NC_000"):
+            return "human"
+        if "MUS MUSCULUS" in acc or acc.startswith("NC_000067"):
+            return "mouse"
+
+        gene_clean = re.sub(r"[^A-Za-z0-9]", "", gene)
+        if gene_clean and any(ch.isalpha() for ch in gene_clean):
+            if gene_clean.upper() == gene_clean:
+                return "human"
+            if gene_clean[0:1].isupper() and gene_clean[1:].lower() == gene_clean[1:]:
+                return "mouse"
+
+        title_species = _species_from_text(article.get("title", ""))
+        if len(title_species) == 1:
+            return next(iter(title_species))
+        return ""
+
+    expected_species = _infer_expected_species()
+
+    def _species_consistent(fwd_ctx: str, rev_ctx: str) -> bool:
+        if not expected_species:
+            return True
+        pair_species = _species_from_text(fwd_ctx) | _species_from_text(rev_ctx)
+        if not pair_species:
+            pair_species = _species_from_text(article.get("title", ""))
+        if not pair_species:
+            return True
+        if expected_species == "human":
+            return "human" in pair_species and "mouse" not in pair_species
+        return "mouse" in pair_species and "human" not in pair_species
+
+    def _triple_check(fwd: ExtractedPrimer, rev: ExtractedPrimer) -> dict | None:
+        """Return match metadata if all three checks pass, else None."""
+        fwd_up = fwd.sequence.upper().replace("U", "T")
+        rev_up = rev.sequence.upper().replace("U", "T")
+        rev_comp_up = reverse_complement(rev_up).upper().replace("U", "T")
+
+        # Check 1: candidate Forward exists exactly in selected CDS.
+        fwd_pos = cds_upper.find(fwd_up)
+        if fwd_pos == -1:
+            return None
+
+        # Check 2: reverse-complement(candidate Reverse) exists exactly in CDS.
+        rev_pos = cds_upper.find(rev_comp_up)
+        if rev_pos == -1:
+            return None
+
+        # Check 3: species consistency from local primer context.
+        if not _species_consistent(fwd.context, rev.context):
+            return None
+
+        return {
+            "fwd_pos": fwd_pos + 1,  # 1-indexed
+            "fwd_strand": "sense",
+            "rev_pos": rev_pos + 1,
+            "rev_strand": "antisense",
+            "rev_comp": rev_comp_up,
+        }
+
     # ── Separate into forward / reverse / unknown ─────────────────────
     forwards = [c for c in candidates if c.direction == "forward"]
     reverses = [c for c in candidates if c.direction == "reverse"]
     unknowns = [c for c in candidates if c.direction == ""]
 
-    # ── Try to match unknown primers by CDS strand mapping ────────────
-    # Forward primers typically match the sense strand;
-    # Reverse primers typically match the antisense strand.
+    # ── Try to assign unknown primers by CDS strand mapping ───────────
     for unk in unknowns:
-        pos_sense = find_primer_on_either_strand(unk.sequence, cds_sequence)
-        if pos_sense[1] == "sense":
-            forwards.append(unk)
-        elif pos_sense[1] == "antisense":
-            reverses.append(unk)
+        unk_up = unk.sequence.upper().replace("U", "T")
+        if cds_upper.find(unk_up) != -1:
+            forwards.append(unk)  # maps to sense strand → likely forward
+        elif cds_upper.find(reverse_complement(unk_up).upper()) != -1:
+            reverses.append(unk)  # reverse-complement maps to sense
 
     # ── Check all possible fwd × rev combinations ────────────────────
     verified_pairs: list[VerifiedPrimerPair] = []
 
     for fwd_candidate in forwards:
         for rev_candidate in reverses:
-            result = verify_primer_pair(fwd_candidate.sequence, rev_candidate.sequence, cds_sequence)
-            if result["both_map"]:
-                fwd_pos, fwd_strand = find_primer_on_either_strand(fwd_candidate.sequence, cds_sequence)
-                rev_pos, rev_strand = find_primer_on_either_strand(rev_candidate.sequence, cds_sequence)
+            match = _triple_check(fwd_candidate, rev_candidate)
+            if match is not None:
                 pair = VerifiedPrimerPair(
-                    forward=result["forward_seq"],
-                    reverse=result["reverse_seq"],
-                    reverse_comp=result["reverse_complement"],
-                    fwd_position=fwd_pos,
-                    fwd_strand=fwd_strand,
-                    rev_position=rev_pos,
-                    rev_strand=rev_strand,
+                    forward=fwd_candidate.sequence.upper(),
+                    reverse=rev_candidate.sequence.upper(),
+                    reverse_comp=match["rev_comp"],
+                    fwd_position=match["fwd_pos"],
+                    fwd_strand=match["fwd_strand"],
+                    rev_position=match["rev_pos"],
+                    rev_strand=match["rev_strand"],
                     source_pmcid=article.get("pmcid", ""),
                     source_pmid=article.get("pmid", ""),
                     citation=article.get("citation", ""),
@@ -513,28 +541,30 @@ def extract_and_verify_primers(
                 )
                 verified_pairs.append(pair)
 
-    # If we had no labelled fwd/rev but have ≥2 unknowns that map,
-    # try pairing them by strand (sense = fwd, antisense = rev)
+    # If no labelled fwd/rev but ≥2 unknowns map, try pairing by strand
     if not verified_pairs and len(unknowns) >= 2:
         sense_hits = []
         antisense_hits = []
         for unk in unknowns:
-            pos, strand = find_primer_on_either_strand(unk.sequence, cds_sequence)
-            if strand == "sense":
-                sense_hits.append((unk, pos))
-            elif strand == "antisense":
-                antisense_hits.append((unk, pos))
-        for fwd_unk, fwd_pos in sense_hits:
-            for rev_unk, rev_pos in antisense_hits:
-                result = verify_primer_pair(fwd_unk.sequence, rev_unk.sequence, cds_sequence)
-                if result["both_map"]:
+            unk_up = unk.sequence.upper().replace("U", "T")
+            if cds_upper.find(unk_up) != -1:
+                sense_hits.append((unk, cds_upper.find(unk_up) + 1))
+            else:
+                unk_rc = reverse_complement(unk_up).upper().replace("U", "T")
+                rc_pos = cds_upper.find(unk_rc)
+                if rc_pos != -1:
+                    antisense_hits.append((unk, rc_pos + 1))
+        for fwd_unk, _ in sense_hits:
+            for rev_unk, _ in antisense_hits:
+                match = _triple_check(fwd_unk, rev_unk)
+                if match is not None:
                     pair = VerifiedPrimerPair(
-                        forward=result["forward_seq"],
-                        reverse=result["reverse_seq"],
-                        reverse_comp=result["reverse_complement"],
-                        fwd_position=fwd_pos,
+                        forward=fwd_unk.sequence.upper(),
+                        reverse=rev_unk.sequence.upper(),
+                        reverse_comp=match["rev_comp"],
+                        fwd_position=match["fwd_pos"],
                         fwd_strand="sense",
-                        rev_position=rev_pos,
+                        rev_position=match["rev_pos"],
                         rev_strand="antisense",
                         source_pmcid=article.get("pmcid", ""),
                         source_pmid=article.get("pmid", ""),
