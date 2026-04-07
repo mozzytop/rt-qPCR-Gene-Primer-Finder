@@ -462,7 +462,7 @@ with tab_main:
             table_html += f'<td><code>{r["accession"]}</code></td>'
             table_html += f'<td>{r["title"]}</td>'
             table_html += f'<td style="text-align:right;">{r["length"]:,}</td>'
-            table_html += f'<td><a href="{r["link"]}" target="_blank">🔗 View</a></td>'
+            table_html += f'<td><a href="{r["link"]}" target="_blank">View</a></td>'
             table_html += "</tr>"
         table_html += "</tbody></table>"
         st.markdown(table_html, unsafe_allow_html=True)
@@ -470,7 +470,7 @@ with tab_main:
         # Selection UI
         options = [f'{r["accession"]}  —  {r["title"][:80]}  ({r["length"]:,} bp)' for r in results]
         selected = st.selectbox("Choose a variant", options, index=0)
-        select_btn = st.button("✅ Use Selected Variant", use_container_width=True)
+        select_btn = st.button("Use Selected Variant", use_container_width=True)
 
         if select_btn:
             _set_entrez()
@@ -498,17 +498,17 @@ with tab_main:
             unsafe_allow_html=True,
         )
         if cds.accession != "USER_INPUT":
-            st.markdown(f"[🔗 NCBI Link]({link})")
+            st.markdown(f"[NCBI Link]({link})")
         st.markdown(f"CDS span: **{cds.cds_start}..{cds.cds_end}** &nbsp;|&nbsp; Filtered bases: **{len(filtered)}**")
 
-        with st.expander("📄 ORIGIN (GenBank-formatted CDS)", expanded=False):
+        with st.expander("ORIGIN (GenBank-formatted CDS)", expanded=False):
             st.markdown(f'<div class="sequence-box">{format_origin_block(filtered)}</div>', unsafe_allow_html=True)
 
         if cds.translation:
-            with st.expander("🧪 Amino-Acid Translation", expanded=False):
+            with st.expander("Amino-Acid Translation", expanded=False):
                 st.markdown(f'<div class="sequence-box">{cds.translation}</div>', unsafe_allow_html=True)
 
-        with st.expander("🔬 Filtered DNA (continuous)", expanded=False):
+        with st.expander("Filtered DNA (continuous)", expanded=False):
             st.markdown(f'<div class="sequence-box">{format_filtered_dna(filtered)}</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
@@ -528,7 +528,7 @@ with tab_main:
             "and verifies them against the CDS."
         )
 
-        pmc_btn = st.button("🔎  Search PMC for Primers", use_container_width=True)
+        pmc_btn = st.button("Search PMC for Primers", use_container_width=True)
 
         if pmc_btn:
             _set_entrez()
@@ -572,7 +572,7 @@ with tab_main:
 
         if st.session_state.verified_pairs:
             pairs = st.session_state.verified_pairs
-            st.success(f"✅ Found **{len(pairs)}** verified primer pair(s)!")
+            st.success(f"Found **{len(pairs)}** verified primer pair(s)!")
 
             org_label = "Human" if "homo" in organism.lower() else "Mouse"
             gene_upper = st.session_state.gene.upper()
@@ -739,7 +739,7 @@ with tab_main:
             )
 
             if result["both_map"]:
-                st.success("✅ Both primers verified against the CDS!")
+                st.success("Both primers verified against the CDS!")
 
         st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
 
@@ -752,7 +752,7 @@ with tab_main:
             unsafe_allow_html=True,
         )
 
-        generate_btn = st.button("📝  Generate Report", use_container_width=True)
+        generate_btn = st.button("Generate Report", use_container_width=True)
         if generate_btn:
             if not fwd_input or not rev_input:
                 st.error("Please enter both primers before generating a report.")
