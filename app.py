@@ -757,7 +757,7 @@ with tab_main:
                     if ref_md:
                         st.markdown(f"**Reference:** {ref_md}")
 
-                    if st.button(f"Use this pair for report (Double Check Species in PubMed Report)", key=f"use_pair_{idx}"):
+                    if st.button(f"Select this pair for report (Double Check Species in PMC Report)", key=f"use_pair_{idx}"):
                         st.session_state.fwd_primer = pair.forward
                         st.session_state.rev_primer = pair.reverse
                         st.session_state.reference = pair.citation
