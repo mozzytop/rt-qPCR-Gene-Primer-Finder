@@ -17,14 +17,18 @@ Run with:
 from __future__ import annotations
 
 import re
+from html import escape as html_escape
 import streamlit as st
 from Bio import Entrez
 
 from utils import (
+    build_report_docx,
+    build_report_pdf,
     filter_dna,
     reverse_complement,
     complement_only,
     reverse_only,
+    find_primer_in_sequence,
     format_origin_block,
     format_filtered_dna,
     find_primer_on_either_strand,
@@ -50,7 +54,6 @@ from ncbi_queries import (
 
 st.set_page_config(
     page_title="Gene Primer Lookup Tool",
-    page_icon="🧬",
     layout="wide",
 )
 
@@ -201,7 +204,7 @@ div.stButton > button:hover {
 
 # ── Header ───────────────────────────────────────────────────────────
 
-st.markdown('<p class="main-header">🧬 Gene Primer Lookup Tool</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-header">Gene Primer Lookup Tool</p>', unsafe_allow_html=True)
 st.markdown(
     '<p class="sub-header">'
     "Automated NCBI gene lookup · CDS extraction · PMC primer search · Sequence utilities"
@@ -267,7 +270,7 @@ for key, default in {
 
 def _set_entrez():
     if not email:
-        st.error("⚠️  Please enter your NCBI email in the sidebar.")
+        st.error("Please enter your NCBI email in the sidebar.")
         st.stop()
     Entrez.email = email
     if api_key:
@@ -385,7 +388,7 @@ with tab_main:
             label_visibility="collapsed",
         )
     with col_btn:
-        search_btn = st.button("🔍 Search", use_container_width=True)
+        search_btn = st.button("Search", use_container_width=True)
 
     if search_btn and user_input.strip():
         _set_entrez()
@@ -661,7 +664,7 @@ with tab_main:
             placeholder="Paste the full citation here…",
         )
 
-        with st.expander("📋 Or paste text containing 5'-…-3' primer notation", expanded=False):
+        with st.expander("Or paste text containing 5'-...-3' primer notation", expanded=False):
             raw_snippet = st.text_area(
                 "Paste abstract / methods text",
                 height=120,
@@ -673,13 +676,28 @@ with tab_main:
                 if found_directed:
                     st.markdown("**Extracted sequences:**")
                     for ep in found_directed:
-                        pos, strand = find_primer_on_either_strand(ep.sequence, filtered)
                         dir_label = f" [{ep.direction}]" if ep.direction else ""
-                        tag = (
-                            f'<span class="status-pill status-success">● Maps ({strand}, pos {pos})</span>'
-                            if pos is not None
-                            else '<span class="status-pill status-warning">● No CDS match</span>'
-                        )
+                        if ep.direction == "forward":
+                            pos = find_primer_in_sequence(ep.sequence, filtered)
+                            tag = (
+                                f'<span class="status-pill status-success">● Matches sense strand, pos {pos}</span>'
+                                if pos is not None
+                                else '<span class="status-pill status-warning">● No valid forward-primer CDS match</span>'
+                            )
+                        elif ep.direction == "reverse":
+                            pos = find_primer_in_sequence(ep.sequence, reverse_complement(filtered))
+                            tag = (
+                                f'<span class="status-pill status-success">● Matches antisense strand, pos {pos}</span>'
+                                if pos is not None
+                                else '<span class="status-pill status-warning">● No valid reverse-primer CDS match</span>'
+                            )
+                        else:
+                            pos, strand = find_primer_on_either_strand(ep.sequence, filtered)
+                            tag = (
+                                f'<span class="status-pill status-success">● Maps ({strand}, pos {pos})</span>'
+                                if pos is not None
+                                else '<span class="status-pill status-warning">● No CDS match</span>'
+                            )
                         st.markdown(f'`{ep.sequence}`{dir_label} {tag}', unsafe_allow_html=True)
 
                     fwd_c = [ep for ep in found_directed if ep.direction == "forward"]
@@ -705,10 +723,15 @@ with tab_main:
             vcol1, vcol2 = st.columns(2)
             with vcol1:
                 if result["fwd_maps"]:
-                    fwd_pos, fwd_strand = find_primer_on_either_strand(fwd_clean, filtered)
                     st.markdown(
                         f'<span class="primer-badge primer-fwd">FWD: {fwd_clean}</span><br>'
-                        f'<span class="status-pill status-success">● {fwd_strand} strand, pos {fwd_pos}</span>',
+                        f'<span class="status-pill status-success">● sense strand, pos {result["fwd_sense_pos"]}</span>',
+                        unsafe_allow_html=True,
+                    )
+                elif result["fwd_antisense_pos"] is not None:
+                    st.markdown(
+                        f'<span class="primer-badge primer-fwd">FWD: {fwd_clean}</span><br>'
+                        '<span class="status-pill status-error">● Found only on antisense strand; forward primers must match the CDS sense strand</span>',
                         unsafe_allow_html=True,
                     )
                 else:
@@ -719,10 +742,15 @@ with tab_main:
                     )
             with vcol2:
                 if result["rev_maps"]:
-                    rev_pos, rev_strand = find_primer_on_either_strand(rev_clean, filtered)
                     st.markdown(
                         f'<span class="primer-badge primer-rev">REV: {rev_clean}</span><br>'
-                        f'<span class="status-pill status-success">● {rev_strand} strand, pos {rev_pos}</span>',
+                        f'<span class="status-pill status-success">● antisense strand, pos {result["reverse_antisense_binding_pos"]}</span>',
+                        unsafe_allow_html=True,
+                    )
+                elif result["rev_sense_pos"] is not None:
+                    st.markdown(
+                        f'<span class="primer-badge primer-rev">REV: {rev_clean}</span><br>'
+                        '<span class="status-pill status-error">● Found only on the CDS sense strand; reverse primers must bind the antisense strand</span>',
                         unsafe_allow_html=True,
                     )
                 else:
@@ -759,28 +787,53 @@ with tab_main:
             else:
                 fwd_clean = filter_dna(fwd_input.strip()).upper()
                 rev_clean = filter_dna(rev_input.strip()).upper()
-                report = _build_report(
-                    gene=st.session_state.gene,
-                    cds=cds,
-                    fwd=fwd_clean,
-                    rev=rev_clean,
-                    reference=ref_input.strip(),
-                    organism_label=organism,
-                )
-                st.session_state.final_report = report
+                verification = verify_primer_pair(fwd_clean, rev_clean, filtered)
+                if not verification["both_map"]:
+                    st.error("Both primers must be verified against the CDS before generating a report.")
+                else:
+                    report = _build_report(
+                        gene=st.session_state.gene,
+                        cds=cds,
+                        fwd=fwd_clean,
+                        rev=rev_clean,
+                        reference=ref_input.strip(),
+                        organism_label=organism,
+                    )
+                    st.session_state.final_report = report
 
         if st.session_state.final_report:
             st.markdown(
-                f'<div class="report-box">{st.session_state.final_report}</div>',
+                f'<div class="report-box">{html_escape(st.session_state.final_report)}</div>',
                 unsafe_allow_html=True,
             )
-            st.download_button(
-                label="⬇️  Download Report (.txt)",
-                data=st.session_state.final_report,
-                file_name=f"{st.session_state.gene.upper()}_primer_report.txt",
-                mime="text/plain",
-                use_container_width=True,
-            )
+            report_basename = f"{st.session_state.gene.upper()}_primer_report"
+            pdf_bytes = build_report_pdf(st.session_state.final_report)
+            docx_bytes = build_report_docx(st.session_state.final_report)
+            dcol1, dcol2, dcol3 = st.columns(3)
+            with dcol1:
+                st.download_button(
+                    label="Download TXT Report",
+                    data=st.session_state.final_report,
+                    file_name=f"{report_basename}.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+            with dcol2:
+                st.download_button(
+                    label="Download PDF Report",
+                    data=pdf_bytes,
+                    file_name=f"{report_basename}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            with dcol3:
+                st.download_button(
+                    label="Download Word Report",
+                    data=docx_bytes,
+                    file_name=f"{report_basename}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                )
 
     elif st.session_state.gene and st.session_state.input_type != "gene_name":
         st.warning("No CDS found. Check the input and try again.")
@@ -966,7 +1019,7 @@ with tab_calc:
                 f"Reverse Complement:\n{seq_rc}\n"
             )
             st.download_button(
-                label="⬇️  Download All Results",
+                label="Download All Results",
                 data=all_output,
                 file_name="sequence_calculations.txt",
                 mime="text/plain",
