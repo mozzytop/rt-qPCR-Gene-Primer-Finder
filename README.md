@@ -1,4 +1,4 @@
-# 🧬 Gene Primer Lookup Tool
+# 🧬 RT-qPCR Gene Primer Finder
 
 A Streamlit-powered bioinformatics automation tool that replaces a manual
 data-gathering workflow for gene sequence retrieval, PCR primer matching, and
@@ -6,12 +6,21 @@ formatted report generation.
 
 ## Features
 
-| Step | What it does |
-|------|-------------|
-| **1 — Gene Lookup** | Queries NCBI Nucleotide for a gene symbol, auto-selects the best "transcript variant 1, mRNA" record, and extracts the CDS origin sequence + amino-acid translation. |
-| **2 — PubMed Search** | Searches PubMed for papers containing PCR primers for the gene. Attempts automatic regex extraction of `5'-…-3'` primer sequences from abstracts and PMC full text. |
-| **3 — Primer Verification** | Lets you enter (or paste) forward/reverse primers and verifies they map to the CDS on either strand. Computes the reverse complement of the reverse primer. |
-| **4 — Report Generation** | Produces a strictly formatted text report matching the provided template, ready for download. |
+| Tab | What it does |
+|-----|--------------|
+| **🧬 Primer Finder** | Full workflow: NCBI gene lookup → variant selection → PMC primer search → CDS verification → formatted report |
+| **🧹 Filter DNA** | Standalone utility: strips non-DNA characters from messy sequences, shows base composition + GC% |
+| **🔄 Sequence Calculator** | Standalone utility: computes Reverse, Complement, and Reverse Complement |
+
+### Primer Finder Workflow
+
+| Step | Details |
+|------|---------|
+| **1 — Flexible Input** | Accepts a gene name (e.g. `GLI1`), a direct NCBI URL (e.g. `https://www.ncbi.nlm.nih.gov/nuccore/NM_005269.3`), or a raw pasted DNA sequence |
+| **2 — Variant Selection** | Returns 5–10 NCBI results with accession, description, bp length, and clickable links. You choose which variant to use |
+| **3 — PMC Primer Search** | Searches PubMed Central full-text for primers, extracts with direction-aware regex, verifies against the CDS |
+| **4 — Manual Input** | Fallback: paste primers manually or extract from text snippets |
+| **5 — Report Generation** | Produces a formatted text report with clickable DOI/PMCID reference links |
 
 ## Prerequisites
 
@@ -39,21 +48,25 @@ The app will open in your browser at `http://localhost:8501`.
 ## Usage
 
 1. Enter your NCBI email in the sidebar.
-2. Type a gene symbol (e.g. `GLI1`, `TP53`, `BRCA1`) and click **Search NCBI**.
-3. Click **Search PubMed for Primers** to find literature with primer sequences.
-4. Enter the forward and reverse primer sequences (from literature or manually).
-5. Click **Generate Report** to produce the formatted output.
-6. Download the report as a `.txt` file.
+2. Type a gene symbol (e.g. `GLI1`, `TP53`, `BRCA1`) and click **Search**.
+3. Select a transcript variant from the results table.
+4. Click **Search PMC for Primers** to auto-extract and verify primers.
+5. Review verified pairs or enter primers manually.
+6. Click **Generate Report** to produce the formatted output.
+7. Download the report as a `.txt` file.
 
 ## Project Structure
 
 ```
 gene-primer-tool/
-├── app.py              # Streamlit UI
-├── ncbi_queries.py     # Bio.Entrez query logic
-├── utils.py            # DNA filtering, reverse complement, formatting
-├── requirements.txt    # Python dependencies
-└── README.md           # This file
+├── .github/
+│   └── workflows/
+│       └── keep_awake.yml      # GitHub Action: pings app every 8h
+├── app.py                      # Streamlit UI (tabbed: Primer Finder | Filter DNA | Seq Calc)
+├── ncbi_queries.py             # Bio.Entrez query logic (Nucleotide, PMC, PubMed)
+├── utils.py                    # DNA filtering, reverse complement, primer extraction
+├── requirements.txt            # Python dependencies
+└── README.md                   # This file
 ```
 
 ## Example Images
@@ -64,17 +77,71 @@ gene-primer-tool/
 <img width="1465" height="748" alt="image" src="https://github.com/user-attachments/assets/1ab07136-17e4-4936-9b80-23169839f738" />
 <img width="1468" height="795" alt="image" src="https://github.com/user-attachments/assets/6bc47ae6-a916-493e-a1ab-2e836a10f867" />
 
+---
+
+## 🔄 Keep-Awake (Streamlit Community Cloud)
+
+Streamlit Community Cloud puts apps to sleep after **12 hours of inactivity**.
+This project includes a GitHub Actions workflow that pings the app every **8 hours**
+to keep it alive automatically.
+
+### Setup Instructions
+
+#### Step 1 — Add the `APP_URL` Secret
+
+1. Go to your GitHub repository: **[github.com/mozzytop/rt-qPCR-Gene-Primer-Finder](https://github.com/mozzytop/rt-qPCR-Gene-Primer-Finder)**
+2. Click **Settings** (top navigation bar)
+3. In the left sidebar, expand **Secrets and variables** → click **Actions**
+4. Click the green **"New repository secret"** button
+5. Fill in:
+   - **Name:** `APP_URL`
+   - **Secret:** Your full Streamlit app URL (e.g. `https://rt-qpcr-gene-primer-finder.streamlit.app/`)
+6. Click **"Add secret"**
+
+> ⚠️ **Important:** The URL must include the trailing `/` and the `https://` prefix.
+
+#### Step 2 — Verify the Workflow is Active
+
+1. Go to the **Actions** tab in your GitHub repository
+2. You should see **"Keep Streamlit App Awake"** in the left sidebar
+3. The workflow runs automatically at **00:00, 08:00, and 16:00 UTC** every day
+4. You can also click **"Run workflow"** → **"Run workflow"** to trigger a manual ping
+
+#### Step 3 — Check Ping Results
+
+1. In the **Actions** tab, click on any **"Keep Streamlit App Awake"** run
+2. Click the **"keep-awake"** job
+3. Expand **"Ping Streamlit App"** to see the output:
+   ```
+   🔔 Pinging: https://your-app.streamlit.app/
+   ⏰ Timestamp: 2026-04-07 16:00:00 UTC
+   📡 HTTP Status: 200
+   ✅ App is awake and responding (HTTP 200)
+   ```
+
+### Schedule
+
+| Time (UTC) | Purpose |
+|-----------|---------|
+| 00:00 | Night ping |
+| 08:00 | Morning ping |
+| 16:00 | Afternoon ping |
+
+Every 8 hours ensures the 12-hour inactivity window is never reached.
+
+---
+
 ## Notes on Primer Extraction
 
 Fully automated extraction of primer sequences from published PDFs is inherently
 brittle — primers may be in supplementary tables, figures, or non-standard
-notation. The tool uses a two-pronged approach:
+notation. The tool uses a multi-pronged approach:
 
-1. **Automatic**: Regex searches abstracts and PMC Open Access full text for
-   `5'-SEQUENCE-3'` patterns.
-2. **Manual fallback**: A text-paste box lets you drop in any snippet of text
-   (e.g. copied from a paper) for regex extraction, or you can type primer
-   sequences directly.
-
-Both approaches feed into the same verification pipeline that maps primers
-against the CDS.
+1. **PMC Full-Text**: Searches PubMed Central for open-access papers, extracts
+   primers from Methods/Supplementary sections using direction-aware regex.
+2. **Direction Inference**: Scans surrounding text for "forward", "reverse",
+   "sense", "antisense" keywords to label primers automatically.
+3. **CDS Verification**: All candidate pairs are programmatically tested against
+   the CDS sequence before being accepted.
+4. **Manual Fallback**: A text-paste box for regex extraction from any snippet,
+   or direct primer entry.
