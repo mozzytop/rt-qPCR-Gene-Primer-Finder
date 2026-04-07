@@ -422,16 +422,14 @@ def extract_and_verify_primers(
         for rev_candidate in reverses:
             result = verify_primer_pair(fwd_candidate.sequence, rev_candidate.sequence, cds_sequence)
             if result["both_map"]:
-                fwd_pos, fwd_strand = find_primer_on_either_strand(fwd_candidate.sequence, cds_sequence)
-                rev_pos, rev_strand = find_primer_on_either_strand(rev_candidate.sequence, cds_sequence)
                 pair = VerifiedPrimerPair(
                     forward=result["forward_seq"],
                     reverse=result["reverse_seq"],
                     reverse_comp=result["reverse_complement"],
-                    fwd_position=fwd_pos,
-                    fwd_strand=fwd_strand,
-                    rev_position=rev_pos,
-                    rev_strand=rev_strand,
+                    fwd_position=result["fwd_sense_pos"],
+                    fwd_strand="sense",
+                    rev_position=result["reverse_antisense_binding_pos"],
+                    rev_strand="antisense",
                     source_pmcid=article.get("pmcid", ""),
                     source_pmid=article.get("pmid", ""),
                     citation=article.get("citation", ""),
@@ -459,9 +457,9 @@ def extract_and_verify_primers(
                         forward=result["forward_seq"],
                         reverse=result["reverse_seq"],
                         reverse_comp=result["reverse_complement"],
-                        fwd_position=fwd_pos,
+                        fwd_position=result["fwd_sense_pos"],
                         fwd_strand="sense",
-                        rev_position=rev_pos,
+                        rev_position=result["reverse_antisense_binding_pos"],
                         rev_strand="antisense",
                         source_pmcid=article.get("pmcid", ""),
                         source_pmid=article.get("pmid", ""),
