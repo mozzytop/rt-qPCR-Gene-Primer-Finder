@@ -56,6 +56,14 @@ gene-primer-tool/
 └── README.md           # This file
 ```
 
+## Example Images
+<img width="1452" height="731" alt="image" src="https://github.com/user-attachments/assets/271acd25-a6e8-4ba0-9097-b3d72d7c54e6" />
+<img width="1403" height="715" alt="image" src="https://github.com/user-attachments/assets/afcadbd5-980e-4d92-b0ea-e751156c425d" />
+<img width="1424" height="752" alt="image" src="https://github.com/user-attachments/assets/83114e62-ca9a-4678-ab25-07032ac67c39" />
+<img width="1469" height="793" alt="image" src="https://github.com/user-attachments/assets/917389a5-9e95-4b7c-bdea-28c0655a0e04" />
+<img width="1465" height="748" alt="image" src="https://github.com/user-attachments/assets/1ab07136-17e4-4936-9b80-23169839f738" />
+<img width="1468" height="795" alt="image" src="https://github.com/user-attachments/assets/6bc47ae6-a916-493e-a1ab-2e836a10f867" />
+
 ## Notes on Primer Extraction
 
 Fully automated extraction of primer sequences from published PDFs is inherently
