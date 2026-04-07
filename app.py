@@ -17,6 +17,7 @@ Run with:
 from __future__ import annotations
 
 import re
+import textwrap
 from html import escape as html_escape
 import streamlit as st
 from Bio import Entrez
@@ -142,7 +143,20 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .report-box {
     background: #0c0e14; border: 1px solid #6c63ff44; border-radius: 12px;
     padding: 1.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.76rem;
-    line-height: 1.65; color: #d4d4dc; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+    line-height: 1.65; color: #d4d4dc; overflow-x: auto; white-space: normal; overflow-wrap: anywhere;
+}
+.report-box strong { color: #ffffff; font-weight: 700; }
+.report-pre {
+    white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere;
+    margin: 0.2rem 0 1rem 0;
+}
+.report-line { margin-bottom: 0.6rem; }
+.report-reference { white-space: pre-wrap; overflow-wrap: anywhere; }
+.report-highlight-fwd {
+    background: rgba(34,197,94,0.22); color: #9df0b7; border-radius: 4px; padding: 0 1px;
+}
+.report-highlight-rc {
+    background: rgba(108,99,255,0.24); color: #c5b8ff; border-radius: 4px; padding: 0 1px;
 }
 
 div.stButton > button {
@@ -257,6 +271,7 @@ for key, default in {
     "pmc_articles": [],
     "verified_pairs": [],
     "final_report": "",
+    "final_report_html": "",
     "fwd_primer": "",
     "rev_primer": "",
     "reference": "",
@@ -309,43 +324,183 @@ def _make_ref_links(pair: VerifiedPrimerPair) -> str:
     return "\n\n".join(parts) if parts else ""
 
 
+def _find_all_occurrences(sequence: str, motif: str) -> list[tuple[int, int]]:
+    """Return all non-overlapping motif spans within sequence."""
+    spans: list[tuple[int, int]] = []
+    if not motif:
+        return spans
+    start = 0
+    while True:
+        idx = sequence.find(motif, start)
+        if idx == -1:
+            break
+        spans.append((idx, idx + len(motif)))
+        start = idx + len(motif)
+    return spans
+
+
+def _build_highlight_spans(sequence: str, fwd: str, rev_comp: str) -> list[tuple[int, int, str]]:
+    """Return sequence spans for forward and reverse-complement highlights."""
+    spans: list[tuple[int, int, str]] = []
+    occupied: set[int] = set()
+    for start, end in _find_all_occurrences(sequence, fwd.lower()):
+        spans.append((start, end, "report-highlight-fwd"))
+        occupied.update(range(start, end))
+    for start, end in _find_all_occurrences(sequence, rev_comp.lower()):
+        if any(idx in occupied for idx in range(start, end)):
+            continue
+        spans.append((start, end, "report-highlight-rc"))
+    spans.sort(key=lambda item: item[0])
+    return spans
+
+
+def _apply_text_highlights(sequence: str, spans: list[tuple[int, int, str]]) -> str:
+    """Uppercase highlighted sequence spans for plain-text exports."""
+    chars = list(sequence.lower())
+    for start, end, _ in spans:
+        for idx in range(start, min(end, len(chars))):
+            chars[idx] = chars[idx].upper()
+    return "".join(chars)
+
+
+def _format_origin_preserving_case(sequence: str, line_width: int = 60, block_size: int = 10) -> str:
+    """Format an ORIGIN block without forcing the sequence to lowercase."""
+    lines: list[str] = []
+    for i in range(0, len(sequence), line_width):
+        chunk = sequence[i : i + line_width]
+        blocks = [chunk[j : j + block_size] for j in range(0, len(chunk), block_size)]
+        lines.append(f"{i + 1:>9} {' '.join(blocks)}")
+    return "\n".join(lines)
+
+
+def _render_sequence_html(
+    sequence: str,
+    spans: list[tuple[int, int, str]],
+    *,
+    line_width: int = 60,
+    block_size: int | None = None,
+    show_origin_numbers: bool = False,
+) -> str:
+    """Render a highlighted DNA sequence block as HTML."""
+    ordered = sorted(spans, key=lambda item: item[0])
+
+    def render_range(start: int, end: int) -> str:
+        parts: list[str] = []
+        cursor = start
+        for span_start, span_end, css_class in ordered:
+            if span_end <= start or span_start >= end:
+                continue
+            seg_start = max(start, span_start)
+            seg_end = min(end, span_end)
+            if cursor < seg_start:
+                parts.append(html_escape(sequence[cursor:seg_start]))
+            parts.append(
+                f'<span class="{css_class}">{html_escape(sequence[seg_start:seg_end])}</span>'
+            )
+            cursor = seg_end
+        if cursor < end:
+            parts.append(html_escape(sequence[cursor:end]))
+        return "".join(parts)
+
+    lines: list[str] = []
+    for line_start in range(0, len(sequence), line_width):
+        line_end = min(line_start + line_width, len(sequence))
+        line_html_parts: list[str] = []
+        if show_origin_numbers:
+            line_html_parts.append(f"{line_start + 1:>9} ")
+        if block_size:
+            for block_start in range(line_start, line_end, block_size):
+                block_end = min(block_start + block_size, line_end)
+                line_html_parts.append(render_range(block_start, block_end))
+                if block_end < line_end:
+                    line_html_parts.append(" ")
+        else:
+            line_html_parts.append(render_range(line_start, line_end))
+        lines.append("".join(line_html_parts))
+    return "<br>".join(lines)
+
+
 def _build_report(
     gene: str, cds: CDSResult, fwd: str, rev: str, reference: str, organism_label: str,
-) -> str:
-    """Build the final formatted output string."""
+) -> tuple[str, str]:
+    """Build plain-text and HTML report outputs."""
     filtered = filter_dna(cds.cds_dna)
-    origin_block = format_origin_block(filtered)
-    filtered_block = format_filtered_dna(filtered)
     rev_comp = reverse_complement(rev)
     link = f"https://www.ncbi.nlm.nih.gov/nuccore/{cds.accession}?from={cds.cds_start}&to={cds.cds_end}"
     org_label = "Human" if "homo" in organism_label.lower() else "Mouse"
+    spans = _build_highlight_spans(filtered.lower(), fwd.lower(), rev_comp.lower())
+    highlighted_sequence = _apply_text_highlights(filtered, spans)
+    origin_block = _format_origin_preserving_case(highlighted_sequence)
+    filtered_block = format_filtered_dna(highlighted_sequence)
+    origin_block_html = _render_sequence_html(
+        filtered.lower(),
+        spans,
+        line_width=60,
+        block_size=10,
+        show_origin_numbers=True,
+    )
+    filtered_block_html = _render_sequence_html(filtered.lower(), spans, line_width=60)
+    wrapped_reference = (
+        textwrap.fill(reference, width=90, break_long_words=True, break_on_hyphens=True)
+        if reference else ""
+    )
 
     lines: list[str] = []
     lines.append(f"Gene: {gene.upper()}")
     lines.append(f"Link: {link}")
+    lines.append("")
     lines.append("ORIGIN")
     lines.append(origin_block)
-    lines.append("//")
+    lines.append("")
 
     trans = cds.translation
-    lines.append(f'/translation="{trans[0:60]}')
-    for i in range(60, len(trans), 60):
-        lines.append(trans[i : i + 60])
-    if lines[-1] and not lines[-1].endswith('"'):
+    if trans:
+        lines.append('translation="')
+        lines.extend(textwrap.wrap(trans, width=60))
         lines[-1] += '"'
+        lines.append("")
 
     lines.append("Filter DNA results:")
     lines.append(f">filtered DNA sequence consisting of {len(filtered)} bases.")
     lines.append(filtered_block)
+    lines.append("")
 
     lines.append(f"{org_label} {gene.upper()} Primer Sequence: Forward : 5'-{fwd}-3'")
     lines.append(f"{org_label} {gene.upper()} Primer Sequence: Reverse : 5'-{rev}-3'")
     lines.append(f"{org_label} {gene.upper()} Primer Sequence: Reverse Comp. : 5'-{rev_comp}-3'")
 
-    if reference:
-        lines.append(f"Reference: {reference}")
+    if wrapped_reference:
+        lines.append("")
+        lines.append("Reference:")
+        lines.append(wrapped_reference)
 
-    return "\n".join(lines)
+    html_parts: list[str] = [
+        f'<div class="report-line"><strong>Gene:</strong> {html_escape(gene.upper())}</div>',
+        f'<div class="report-line"><strong>Link:</strong> {html_escape(link)}</div>',
+        '<div class="report-line"><strong>ORIGIN</strong></div>',
+        f'<div class="report-pre">{origin_block_html}</div>',
+    ]
+    if trans:
+        trans_html = "<br>".join(html_escape(chunk) for chunk in textwrap.wrap(trans, width=60))
+        html_parts.extend([
+            '<div class="report-line"><strong>translation</strong></div>',
+            f'<div class="report-pre">&quot;{trans_html}&quot;</div>',
+        ])
+    html_parts.extend([
+        '<div class="report-line"><strong>Filter DNA results:</strong></div>',
+        f'<div class="report-line">&gt; filtered DNA sequence consisting of {len(filtered)} bases.</div>',
+        f'<div class="report-pre">{filtered_block_html}</div>',
+        f'<div class="report-line"><strong>{html_escape(org_label)} {html_escape(gene.upper())} Primer Sequence: Forward :</strong> 5&#39;-{html_escape(fwd)}-3&#39;</div>',
+        f'<div class="report-line">{html_escape(org_label)} {html_escape(gene.upper())} Primer Sequence: Reverse : 5&#39;-{html_escape(rev)}-3&#39;</div>',
+        f'<div class="report-line"><strong>{html_escape(org_label)} {html_escape(gene.upper())} Primer Sequence: Reverse Comp. :</strong> 5&#39;-{html_escape(rev_comp)}-3&#39;</div>',
+    ])
+    if wrapped_reference:
+        html_parts.extend([
+            '<div class="report-line"><strong>Reference:</strong></div>',
+            f'<div class="report-reference">{html_escape(wrapped_reference)}</div>',
+        ])
+
+    return "\n".join(lines), "".join(html_parts)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -396,7 +551,7 @@ with tab_main:
         input_type = _detect_input_type(inp)
 
         # Reset downstream state
-        for k in ["pmc_articles", "verified_pairs", "final_report", "fwd_primer",
+        for k in ["pmc_articles", "verified_pairs", "final_report", "final_report_html", "fwd_primer",
                    "rev_primer", "reference", "auto_search_done", "selected_accession"]:
             st.session_state[k] = "" if isinstance(st.session_state.get(k), str) else (
                 [] if isinstance(st.session_state.get(k), list) else False
@@ -602,7 +757,7 @@ with tab_main:
                     if ref_md:
                         st.markdown(f"**Reference:** {ref_md}")
 
-                    if st.button(f"Use this pair for report", key=f"use_pair_{idx}"):
+                    if st.button(f"Use this pair for report (Double Check Species in PubMed Report)", key=f"use_pair_{idx}"):
                         st.session_state.fwd_primer = pair.forward
                         st.session_state.rev_primer = pair.reverse
                         st.session_state.reference = pair.citation
@@ -791,7 +946,7 @@ with tab_main:
                 if not verification["both_map"]:
                     st.error("Both primers must be verified against the CDS before generating a report.")
                 else:
-                    report = _build_report(
+                    report_text, report_html = _build_report(
                         gene=st.session_state.gene,
                         cds=cds,
                         fwd=fwd_clean,
@@ -799,11 +954,12 @@ with tab_main:
                         reference=ref_input.strip(),
                         organism_label=organism,
                     )
-                    st.session_state.final_report = report
+                    st.session_state.final_report = report_text
+                    st.session_state.final_report_html = report_html
 
         if st.session_state.final_report:
             st.markdown(
-                f'<div class="report-box">{html_escape(st.session_state.final_report)}</div>',
+                f'<div class="report-box">{st.session_state.final_report_html}</div>',
                 unsafe_allow_html=True,
             )
             report_basename = f"{st.session_state.gene.upper()}_primer_report"
