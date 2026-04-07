@@ -56,6 +56,30 @@ class VerifiedPrimerPair:
     doi: str = ""
 
 
+# ── Species detection ────────────────────────────────────────────────
+
+# NCBI Taxonomy IDs
+_TXID_HUMAN = "9606"
+_TXID_MOUSE = "10090"
+
+_MOUSE_KEYWORDS = re.compile(
+    r"\b(mouse|mus|murine|mus\s*musculus)\b", re.IGNORECASE
+)
+
+
+def detect_species(text: str) -> tuple[str, str, str]:
+    """Auto-detect species from the user's input string.
+
+    Scans for mouse-related keywords (mouse, mus, murine, mus musculus).
+    Defaults to Homo sapiens if none are found.
+
+    Returns (organism_name, taxonomy_id, short_label).
+    """
+    if _MOUSE_KEYWORDS.search(text):
+        return "Mus musculus", _TXID_MOUSE, "mouse"
+    return "Homo sapiens", _TXID_HUMAN, "human"
+
+
 # ── NCBI Nucleotide helpers ──────────────────────────────────────────
 
 
@@ -71,26 +95,48 @@ def parse_ncbi_url(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 20) -> list[dict]:
-    """Search NCBI Nucleotide for *gene* in *organism*.
+def search_nucleotide(
+    gene: str,
+    organism: str = "Homo sapiens",
+    taxonomy_id: str = "",
+    retmax: int = 20,
+) -> list[dict]:
+    """Search NCBI Nucleotide for *gene* using taxonomy-ID-based queries.
+
+    Uses txid-based filtering (e.g. txid9606[ORGN]) for strict species
+    separation.  Results are scored with nomenclature-aware prioritisation:
+      - Human genes are expected in ALL-CAPS  (e.g. GLI1)
+      - Mouse genes are expected in Title-case (e.g. Gli1)
 
     Returns a list of dicts with: id, title, accession, length, link, score.
-    Results are scored and sorted so the best "transcript variant 1, mRNA"
-    record appears first, but ALL results are returned for user selection.
     """
-    if organism.lower() in ("human", "homo sapiens"):
-        org_query = '("Homo sapiens"[Organism] OR "human gene")'
-    elif organism.lower() in ("mouse", "mus musculus"):
-        org_query = '("Mus musculus"[Organism] OR "mouse gene")'
-    else:
-        org_query = f'("{organism}"[Organism])'
+    # Resolve taxonomy ID
+    if not taxonomy_id:
+        _, taxonomy_id, _ = detect_species(organism)
 
-    query = f"{gene} AND {org_query}"
+    # Enhanced Entrez query with taxonomy ID
+    query = (
+        f'({gene}) AND txid{taxonomy_id}[ORGN]'
+        f' AND "transcript variant 1"[All Fields]'
+        f' AND biomol_mrna[PROP]'
+    )
     handle = Entrez.esearch(db="nucleotide", term=query, retmax=retmax, usehistory="y")
     record = Entrez.read(handle)
     handle.close()
 
     ids = record.get("IdList", [])
+
+    # Fallback: broader query without transcript variant 1 constraint
+    if not ids:
+        query_broad = (
+            f'({gene}) AND txid{taxonomy_id}[ORGN]'
+            f' AND biomol_mrna[PROP]'
+        )
+        handle = Entrez.esearch(db="nucleotide", term=query_broad, retmax=retmax, usehistory="y")
+        record = Entrez.read(handle)
+        handle.close()
+        ids = record.get("IdList", [])
+
     if not ids:
         return []
 
@@ -99,6 +145,7 @@ def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 2
     handle.close()
 
     gene_upper = gene.upper()
+    is_mouse = taxonomy_id == _TXID_MOUSE
     results = []
     for s in summaries:
         acc = s.get("AccessionVersion", s.get("Caption", ""))
@@ -106,21 +153,54 @@ def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 2
         length = int(s.get("Length", 0))
         link = f"https://www.ncbi.nlm.nih.gov/nuccore/{acc}"
 
-        # Score for sorting
+        # ── Scoring ──────────────────────────────────────────────────
         title_upper = title.upper()
         score = 0
+
+        # Gene name present
         if gene_upper in title_upper:
             score += 10
+
+        # mRNA tag
         if "MRNA" in title_upper:
             score += 5
+
+        # Transcript variant ranking
         if "TRANSCRIPT VARIANT 1" in title_upper:
             score += 8
         elif "TRANSCRIPT VARIANT" in title_upper:
             score += 2
-        if "HOMO SAPIENS" in title_upper or "MUS MUSCULUS" in title_upper:
+
+        # Correct organism
+        if is_mouse and "MUS MUSCULUS" in title_upper:
             score += 3
+        elif not is_mouse and "HOMO SAPIENS" in title_upper:
+            score += 3
+
+        # Nomenclature-based prioritisation
+        # Human: gene symbol should be ALL-CAPS (e.g. "GLI1")
+        # Mouse: gene symbol should be Title-case (e.g. "Gli1")
+        if is_mouse:
+            # Prefer title-case gene name for mouse
+            gene_titlecase = gene.capitalize()  # e.g. "Gli1"
+            if gene_titlecase in title:
+                score += 4
+            elif gene_upper in title:  # all-caps in a mouse record = suspicious
+                score -= 2
+        else:
+            # Prefer ALL-CAPS gene name for human
+            if gene_upper in title:
+                score += 4
+
+        # Penalise predicted records
         if "PREDICTED" in title_upper:
             score -= 6
+
+        # Penalise wrong species (catch any leakage)
+        if is_mouse and "HOMO SAPIENS" in title_upper:
+            score -= 15
+        elif not is_mouse and "MUS MUSCULUS" in title_upper:
+            score -= 15
 
         results.append({
             "id": str(s["Id"]),
@@ -136,31 +216,16 @@ def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 2
 
 
 def _pick_best_record(results: list[dict], gene: str) -> Optional[dict]:
-    """Heuristically pick the best "transcript variant 1, mRNA" record."""
+    """Pick the highest-scored result (already sorted by search_nucleotide)."""
+    if not results:
+        return None
+    # Results are already sorted by score in search_nucleotide.
+    # Return the first one that contains the gene name.
     gene_upper = gene.upper()
-    scored: list[tuple[int, dict]] = []
     for r in results:
-        title = r["title"].upper()
-        score = 0
-        if gene_upper in title:
-            score += 10
-        else:
-            continue
-        if "MRNA" in title:
-            score += 5
-        if "TRANSCRIPT VARIANT 1" in title:
-            score += 8
-        elif "TRANSCRIPT VARIANT" in title:
-            score += 2
-        if "HOMO SAPIENS" in title:
-            score += 3
-        if "PREDICTED" in title:
-            score -= 6
-        scored.append((score, r))
-    if not scored:
-        return results[0] if results else None
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return scored[0][1]
+        if gene_upper in r["title"].upper():
+            return r
+    return results[0]
 
 
 def fetch_genbank_record(accession_or_id: str) -> SeqIO.SeqRecord:
@@ -221,19 +286,27 @@ def fetch_cds_by_accession(accession: str) -> CDSResult:
 # ═════════════════════════════════════════════════════════════════════
 
 
-def search_pmc_for_primers(gene: str, organism: str = "human", retmax: int = 20) -> list[dict]:
+def search_pmc_for_primers(
+    gene: str,
+    organism: str = "human",
+    taxonomy_id: str = "",
+    retmax: int = 20,
+) -> list[dict]:
     """
-    Search **PubMed Central** (not regular PubMed) for open-access articles
-    likely containing PCR primer sequences for *gene*.
+    Search **PubMed Central** for open-access articles containing PCR
+    primer sequences for *gene*, filtered by species.
 
-    PMC gives us full-text access which is where primer sequences actually live
-    (Materials & Methods, supplementary tables, etc).
-
-    Returns basic metadata: PMCID, PMID, title, authors, citation.
+    Uses taxonomy-aware organism name to prevent species bleeding.
     """
+    # Resolve taxonomy ID and organism name
+    if not taxonomy_id:
+        _, taxonomy_id, _ = detect_species(organism)
+
+    org_name = "Mus musculus" if taxonomy_id == _TXID_MOUSE else "Homo sapiens"
+
     query = (
         f'"{gene}" AND (primer OR "PCR" OR "RT-PCR" OR "qPCR" OR "real-time PCR")'
-        f' AND ("{organism}") AND open access[filter]'
+        f' AND ("{org_name}") AND open access[filter]'
     )
     handle = Entrez.esearch(db="pmc", term=query, retmax=retmax, sort="relevance")
     record = Entrez.read(handle)
@@ -244,7 +317,7 @@ def search_pmc_for_primers(gene: str, organism: str = "human", retmax: int = 20)
         # Fallback: try without open access filter
         query_fallback = (
             f'"{gene}" AND (primer OR "PCR" OR "RT-PCR" OR "qPCR")'
-            f' AND ("{organism}")'
+            f' AND ("{org_name}")'
         )
         handle = Entrez.esearch(db="pmc", term=query_fallback, retmax=retmax, sort="relevance")
         record = Entrez.read(handle)

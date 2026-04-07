@@ -42,6 +42,7 @@ from ncbi_queries import (
     search_pmc_for_primers,
     search_pubmed_for_primers,
     extract_and_verify_primers,
+    detect_species,
     CDSResult,
     VerifiedPrimerPair,
 )
@@ -245,6 +246,9 @@ for key, default in {
     "input_type": "gene_name",
     "summaries": [],
     "selected_accession": "",
+    "detected_organism": "Homo sapiens",
+    "detected_taxid": "9606",
+    "detected_species_label": "human",
     "pmc_articles": [],
     "verified_pairs": [],
     "final_report": "",
@@ -433,8 +437,30 @@ with tab_main:
             # ── Gene name search ─────────────────────────────────────
             st.session_state.gene = inp
             st.session_state.input_type = "gene_name"
-            with st.spinner("Querying NCBI Nucleotide…"):
-                summaries = search_nucleotide(inp, organism)
+
+            # Auto-detect species from input text
+            det_org, det_taxid, det_label = detect_species(inp)
+            st.session_state.detected_organism = det_org
+            st.session_state.detected_taxid = det_taxid
+            st.session_state.detected_species_label = det_label
+
+            # Use sidebar organism override if it disagrees with auto-detect
+            # (sidebar is the explicit user choice, takes precedence)
+            if "mus" in organism.lower():
+                st.session_state.detected_organism = "Mus musculus"
+                st.session_state.detected_taxid = "10090"
+                st.session_state.detected_species_label = "mouse"
+            elif "homo" in organism.lower():
+                st.session_state.detected_organism = "Homo sapiens"
+                st.session_state.detected_taxid = "9606"
+                st.session_state.detected_species_label = "human"
+
+            with st.spinner(f"Querying NCBI Nucleotide (txid{st.session_state.detected_taxid})…"):
+                summaries = search_nucleotide(
+                    inp,
+                    organism=st.session_state.detected_organism,
+                    taxonomy_id=st.session_state.detected_taxid,
+                )
                 st.session_state.summaries = summaries
 
     # ── Variant selection table ──────────────────────────────────────
@@ -444,7 +470,15 @@ with tab_main:
             and st.session_state.cds is None):
 
         results = st.session_state.summaries[:10]  # show top 10
-        st.markdown(f"**{len(results)}** results found. Select a variant:")
+        det_label = st.session_state.detected_species_label
+        det_taxid = st.session_state.detected_taxid
+        species_icon = "🐭" if det_label == "mouse" else "🧬"
+        st.markdown(
+            f'{species_icon} Species filter: '
+            f'<span class="status-pill status-success">● {st.session_state.detected_organism} (txid{det_taxid})</span>'
+            f' &nbsp; **{len(results)}** results found — select a variant:',
+            unsafe_allow_html=True,
+        )
 
         # Build HTML table
         table_html = '<table class="variant-table"><thead><tr>'
@@ -526,11 +560,11 @@ with tab_main:
 
         if pmc_btn:
             _set_entrez()
-            org_short = "human" if "homo" in organism.lower() else "mouse"
             gene_name = st.session_state.gene
+            taxid = st.session_state.detected_taxid
 
             with st.spinner("Searching PubMed Central…"):
-                articles = search_pmc_for_primers(gene_name, org_short)
+                articles = search_pmc_for_primers(gene_name, taxonomy_id=taxid)
                 st.session_state.pmc_articles = articles
 
             if not articles:
