@@ -95,12 +95,18 @@ def parse_ncbi_url(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 20) -> list[dict]:
+def search_nucleotide(
+    gene: str,
+    organism: str = "Homo sapiens",
+    taxonomy_id: str = "",
+    retmax: int = 20,
+) -> list[dict]:
     """Search NCBI Nucleotide for *gene* in *organism*.
 
     Returns a list of dicts with: id, title, accession, length, link, score.
     Results are scored and sorted so the best "transcript variant 1, mRNA"
     record appears first, but ALL results are returned for user selection.
+    taxonomy_id is accepted for app compatibility but intentionally ignored.
     """
     if organism.lower() in ("human", "homo sapiens"):
         org_query = '("Homo sapiens"[Organism] OR "human gene")'
