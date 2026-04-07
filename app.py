@@ -208,11 +208,17 @@ st.markdown(
     "</p>",
     unsafe_allow_html=True,
 )
+st.markdown(
+    '<p class="sub-header">'
+    "MANUALLY VERIFY SEQUENCES AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!"
+    "</p>",
+    unsafe_allow_html=True,
+)
 
 # ── Sidebar config ───────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("### ⚙️ Configuration")
+    st.markdown("### Configuration")
     email = st.text_input(
         "NCBI Email (required)",
         placeholder="you@example.com",
@@ -233,8 +239,8 @@ with st.sidebar:
         "3. Auto-search PMC for primer pairs\n"
         "4. Verify primers & generate report\n\n"
         "**Utilities:**\n"
-        "- 🧹 Filter DNA — clean raw sequences\n"
-        "- 🔄 Sequence Calculator — RC, complement"
+        "- Filter DNA — clean raw sequences\n"
+        "- Sequence Calculator — RC, complement"
     )
 
 # ── Session state init ──────────────────────────────────────────────
@@ -344,9 +350,9 @@ def _build_report(
 # ═══════════════════════════════════════════════════════════════════
 
 tab_main, tab_filter, tab_calc = st.tabs([
-    "🧬 Primer Finder",
-    "🧹 Filter DNA",
-    "🔄 Sequence Calculator",
+    "Primer Finder",
+    "Filter DNA",
+    "Sequence Calculator",
 ])
 
 # ═══════════════════════════════════════════════════════════════════
@@ -787,7 +793,7 @@ with tab_main:
 with tab_filter:
     st.markdown(
         '<div class="card"><div class="card-title">'
-        "🧹 Filter DNA Utility"
+        "Filter DNA Utility"
         "</div></div>",
         unsafe_allow_html=True,
     )
@@ -856,7 +862,7 @@ with tab_filter:
         )
 
         st.download_button(
-            label="⬇️  Download Filtered Sequence",
+            label="Download Filtered Sequence",
             data=display_seq,
             file_name="filtered_dna.txt",
             mime="text/plain",
@@ -874,7 +880,7 @@ with tab_filter:
 with tab_calc:
     st.markdown(
         '<div class="card"><div class="card-title">'
-        "🔄 Sequence Calculator"
+        "Sequence Calculator"
         "</div></div>",
         unsafe_allow_html=True,
     )
@@ -928,7 +934,7 @@ with tab_calc:
             # Reverse
             st.markdown(
                 f'<div class="util-result">'
-                f'<div class="util-result-label label-reverse">↩️ Reverse</div>'
+                f'<div class="util-result-label label-reverse">Reverse</div>'
                 f'<div class="util-result-seq">{seq_reverse}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -937,7 +943,7 @@ with tab_calc:
             # Complement
             st.markdown(
                 f'<div class="util-result">'
-                f'<div class="util-result-label label-complement">🔀 Complement</div>'
+                f'<div class="util-result-label label-complement">Complement</div>'
                 f'<div class="util-result-seq">{seq_complement}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -946,7 +952,7 @@ with tab_calc:
             # Reverse Complement
             st.markdown(
                 f'<div class="util-result">'
-                f'<div class="util-result-label label-rc">🔄 Reverse Complement</div>'
+                f'<div class="util-result-label label-rc">Reverse Complement</div>'
                 f'<div class="util-result-seq">{seq_rc}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
