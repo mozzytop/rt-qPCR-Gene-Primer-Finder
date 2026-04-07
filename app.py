@@ -578,7 +578,7 @@ with tab_main:
             gene_upper = st.session_state.gene.upper()
 
             for idx, pair in enumerate(pairs):
-                exp_title = f"✅ Pair {idx + 1}  —  {pair.source_pmcid}  |  {pair.title[:70]}"
+                exp_title = f"Pair {idx + 1}  —  {pair.source_pmcid}  |  {pair.title[:70]}"
                 with st.expander(exp_title, expanded=(idx == 0)):
                     st.markdown(
                         f"""<div class="verified-pair-box">
@@ -599,7 +599,7 @@ with tab_main:
                     if ref_md:
                         st.markdown(f"**Reference:** {ref_md}")
 
-                    if st.button(f"⬆️ Use this pair for report", key=f"use_pair_{idx}"):
+                    if st.button(f"Use this pair for report", key=f"use_pair_{idx}"):
                         st.session_state.fwd_primer = pair.forward
                         st.session_state.rev_primer = pair.reverse
                         st.session_state.reference = pair.citation
@@ -607,12 +607,12 @@ with tab_main:
 
         elif st.session_state.auto_search_done and not st.session_state.verified_pairs:
             st.warning(
-                "⚠️ No verified primer pairs found in PMC full text. "
+                "No verified primer pairs found in PMC full text. "
                 "Use **Step 3** below to paste primers manually."
             )
 
         if st.session_state.pmc_articles:
-            with st.expander("📚 All PMC articles scanned", expanded=False):
+            with st.expander("All PMC articles scanned", expanded=False):
                 for art in st.session_state.pmc_articles:
                     pmcid = art.get("pmcid", "")
                     doi = art.get("doi", "")
@@ -687,8 +687,8 @@ with tab_main:
                     if fwd_c and rev_c:
                         result = verify_primer_pair(fwd_c[0].sequence, rev_c[0].sequence, filtered)
                         if result["both_map"]:
-                            st.success("✅ Verified pair found in pasted text!")
-                            if st.button("⬆️ Use this pair"):
+                            st.success("Verified pair found in pasted text!")
+                            if st.button("Use this pair"):
                                 st.session_state.fwd_primer = result["forward_seq"]
                                 st.session_state.rev_primer = result["reverse_seq"]
                                 st.rerun()
