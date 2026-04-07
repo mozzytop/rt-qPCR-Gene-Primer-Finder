@@ -8,9 +8,14 @@ Provides helpers for:
   - Robust primer extraction with direction detection
 """
 
+from __future__ import annotations
+
 import re
+from io import BytesIO
 from typing import Optional
 from dataclasses import dataclass
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 
 # Standard IUPAC complement map
@@ -35,6 +40,11 @@ def complement_only(sequence: str) -> str:
 def reverse_only(sequence: str) -> str:
     """Return the reversed sequence WITHOUT complementing (preserves case)."""
     return sequence[::-1]
+
+
+def _normalize_dna(sequence: str) -> str:
+    """Normalize DNA/RNA input to uppercase DNA characters."""
+    return filter_dna(sequence).upper().replace("U", "T")
 
 
 def format_origin_block(sequence: str, line_width: int = 60, block_size: int = 10) -> str:
@@ -69,8 +79,8 @@ def find_primer_in_sequence(primer: str, sequence: str) -> Optional[int]:
     Search for *primer* inside *sequence* (case-insensitive).
     Returns the 0-based start position or ``None`` if not found.
     """
-    primer_upper = primer.upper().replace("U", "T")
-    seq_upper = sequence.upper().replace("U", "T")
+    primer_upper = _normalize_dna(primer)
+    seq_upper = _normalize_dna(sequence)
     idx = seq_upper.find(primer_upper)
     return idx if idx != -1 else None
 
@@ -233,9 +243,9 @@ def verify_primer_pair(
 
     Returns a dict with verification results.
     """
-    fwd_clean = forward.upper().replace("U", "T")
-    rev_clean = reverse.upper().replace("U", "T")
-    cds_upper = cds_sequence.upper().replace("U", "T")
+    fwd_clean = _normalize_dna(forward)
+    rev_clean = _normalize_dna(reverse)
+    cds_upper = _normalize_dna(cds_sequence)
     rc_cds = reverse_complement(cds_upper)
 
     fwd_sense = find_primer_in_sequence(fwd_clean, cds_upper)
@@ -247,6 +257,9 @@ def verify_primer_pair(
     # Forward should be on sense, reverse on antisense (= its RC on sense)
     rev_rc = reverse_complement(rev_clean)
     rev_rc_on_sense = find_primer_in_sequence(rev_rc, cds_upper)
+    forward_verified = fwd_sense is not None
+    reverse_verified = rev_rc_on_sense is not None
+    reverse_antisense_pos = find_primer_in_sequence(rev_clean, rc_cds)
 
     return {
         "forward_seq": fwd_clean,
@@ -257,7 +270,157 @@ def verify_primer_pair(
         "rev_sense_pos": rev_sense,
         "rev_antisense_pos": rev_anti,
         "rev_rc_sense_pos": rev_rc_on_sense,
-        "fwd_maps": fwd_sense is not None or fwd_anti is not None,
-        "rev_maps": rev_sense is not None or rev_anti is not None,
-        "both_map": (fwd_sense is not None or fwd_anti is not None) and (rev_sense is not None or rev_anti is not None),
+        "reverse_antisense_binding_pos": reverse_antisense_pos,
+        "fwd_maps": forward_verified,
+        "rev_maps": reverse_verified,
+        "both_map": forward_verified and reverse_verified,
     }
+
+
+def build_report_pdf(report_text: str) -> bytes:
+    """
+    Build a simple monospaced PDF document from plain text using only stdlib.
+    """
+    lines = report_text.splitlines() or [""]
+    lines_per_page = 52
+    pages = [lines[i : i + lines_per_page] for i in range(0, len(lines), lines_per_page)] or [[""]]
+
+    objects: list[bytes] = []
+    page_ids: list[int] = []
+    content_ids: list[int] = []
+
+    def _add_object(data: str | bytes) -> int:
+        payload = data.encode("latin-1", errors="replace") if isinstance(data, str) else data
+        objects.append(payload)
+        return len(objects)
+
+    def _pdf_escape(text: str) -> str:
+        return (
+            text.replace("\\", "\\\\")
+            .replace("(", "\\(")
+            .replace(")", "\\)")
+        )
+
+    catalog_id = _add_object("")
+    pages_id = _add_object("")
+    font_id = _add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>")
+
+    for page_lines in pages:
+        stream_lines = ["BT", "/F1 10 Tf", "72 770 Td", "12 TL"]
+        for idx, line in enumerate(page_lines):
+            prefix = "" if idx == 0 else "T* "
+            stream_lines.append(f"{prefix}({_pdf_escape(line)}) Tj")
+        stream_lines.append("ET")
+        stream = "\n".join(stream_lines).encode("latin-1", errors="replace")
+        content_id = _add_object(
+            b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream"
+        )
+        page_id = _add_object(
+            f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>"
+        )
+        content_ids.append(content_id)
+        page_ids.append(page_id)
+
+    objects[catalog_id - 1] = f"<< /Type /Catalog /Pages {pages_id} 0 R >>".encode("latin-1")
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objects[pages_id - 1] = f"<< /Type /Pages /Count {len(page_ids)} /Kids [{kids}] >>".encode("latin-1")
+
+    output = BytesIO()
+    output.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(output.tell())
+        output.write(f"{index} 0 obj\n".encode("ascii"))
+        output.write(obj)
+        output.write(b"\nendobj\n")
+
+    xref_offset = output.tell()
+    output.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    output.write(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.write(f"{offset:010d} 00000 n \n".encode("ascii"))
+
+    output.write(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root {catalog_id} 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF"
+        ).encode("ascii")
+    )
+    return output.getvalue()
+
+
+def build_report_docx(report_text: str) -> bytes:
+    """
+    Build a minimal DOCX document from plain text using only stdlib.
+    """
+    body_parts = []
+    for line in report_text.splitlines() or [""]:
+        if line:
+            run_parts = []
+            for part in re.split(r"(\s+)", line):
+                if not part:
+                    continue
+                preserve_attr = ' xml:space="preserve"' if part != part.strip() else ""
+                run_parts.append(f"<w:r><w:t{preserve_attr}>{escape(part)}</w:t></w:r>")
+            runs = "".join(run_parts)
+        else:
+            runs = "<w:r />"
+        body_parts.append(f"<w:p>{runs}</w:p>")
+
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" '
+        'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+        'xmlns:o="urn:schemas-microsoft-com:office:office" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" '
+        'xmlns:v="urn:schemas-microsoft-com:vml" '
+        'xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" '
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+        'xmlns:w10="urn:schemas-microsoft-com:office:word" '
+        'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" '
+        'xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" '
+        'xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" '
+        'xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" '
+        'xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" '
+        'mc:Ignorable="w14 wp14">'
+        '<w:body>'
+        f'{"".join(body_parts)}'
+        '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" '
+        'w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>'
+        '<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+        '</w:body></w:document>'
+    )
+
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        '</Types>'
+    )
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="word/document.xml"/>'
+        '</Relationships>'
+    )
+    doc_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships" />'
+    )
+
+    output = BytesIO()
+    with ZipFile(output, "w", compression=ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types_xml)
+        zf.writestr("_rels/.rels", rels_xml)
+        zf.writestr("word/document.xml", document_xml)
+        zf.writestr("word/_rels/document.xml.rels", doc_rels_xml)
+    return output.getvalue()
