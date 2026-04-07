@@ -53,13 +53,31 @@ class VerifiedPrimerPair:
     source_pmid: str = ""
     citation: str = ""
     title: str = ""
+    doi: str = ""
 
 
 # ── NCBI Nucleotide helpers ──────────────────────────────────────────
 
 
+def parse_ncbi_url(url: str) -> Optional[str]:
+    """Extract an accession or GI from an NCBI nuccore URL.
+
+    Handles forms like:
+      https://www.ncbi.nlm.nih.gov/nuccore/NM_005269.3
+      https://www.ncbi.nlm.nih.gov/nuccore/AF003837.1
+      https://www.ncbi.nlm.nih.gov/nuccore/12345678
+    """
+    m = re.search(r"nuccore/([A-Za-z0-9_.]+)", url)
+    return m.group(1) if m else None
+
+
 def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 20) -> list[dict]:
-    """Search NCBI Nucleotide for *gene* in *organism*."""
+    """Search NCBI Nucleotide for *gene* in *organism*.
+
+    Returns a list of dicts with: id, title, accession, length, link, score.
+    Results are scored and sorted so the best "transcript variant 1, mRNA"
+    record appears first, but ALL results are returned for user selection.
+    """
     if organism.lower() in ("human", "homo sapiens"):
         org_query = '("Homo sapiens"[Organism] OR "human gene")'
     elif organism.lower() in ("mouse", "mus musculus"):
@@ -80,13 +98,40 @@ def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 2
     summaries = Entrez.read(handle)
     handle.close()
 
+    gene_upper = gene.upper()
     results = []
     for s in summaries:
+        acc = s.get("AccessionVersion", s.get("Caption", ""))
+        title = s.get("Title", "")
+        length = int(s.get("Length", 0))
+        link = f"https://www.ncbi.nlm.nih.gov/nuccore/{acc}"
+
+        # Score for sorting
+        title_upper = title.upper()
+        score = 0
+        if gene_upper in title_upper:
+            score += 10
+        if "MRNA" in title_upper:
+            score += 5
+        if "TRANSCRIPT VARIANT 1" in title_upper:
+            score += 8
+        elif "TRANSCRIPT VARIANT" in title_upper:
+            score += 2
+        if "HOMO SAPIENS" in title_upper or "MUS MUSCULUS" in title_upper:
+            score += 3
+        if "PREDICTED" in title_upper:
+            score -= 6
+
         results.append({
             "id": str(s["Id"]),
-            "title": s.get("Title", ""),
-            "accession": s.get("AccessionVersion", s.get("Caption", "")),
+            "title": title,
+            "accession": acc,
+            "length": length,
+            "link": link,
+            "score": score,
         })
+
+    results.sort(key=lambda r: r["score"], reverse=True)
     return results
 
 
@@ -163,6 +208,12 @@ def lookup_gene(gene: str, organism: str = "Homo sapiens") -> tuple[list[dict], 
     record = fetch_genbank_record(best["id"])
     cds = extract_cds(record)
     return summaries, cds
+
+
+def fetch_cds_by_accession(accession: str) -> CDSResult:
+    """Fetch a GenBank record by accession and extract CDS."""
+    record = fetch_genbank_record(accession)
+    return extract_cds(record)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -385,6 +436,7 @@ def extract_and_verify_primers(
                     source_pmid=article.get("pmid", ""),
                     citation=article.get("citation", ""),
                     title=article.get("title", ""),
+                    doi=article.get("doi", ""),
                 )
                 verified_pairs.append(pair)
 
@@ -415,6 +467,7 @@ def extract_and_verify_primers(
                         source_pmid=article.get("pmid", ""),
                         citation=article.get("citation", ""),
                         title=article.get("title", ""),
+                        doi=article.get("doi", ""),
                     )
                     verified_pairs.append(pair)
 

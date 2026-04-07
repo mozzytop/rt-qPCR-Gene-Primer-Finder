@@ -27,6 +27,16 @@ def reverse_complement(sequence: str) -> str:
     return sequence.translate(_COMPLEMENT)[::-1]
 
 
+def complement_only(sequence: str) -> str:
+    """Return the complement of a DNA string WITHOUT reversing (preserves case)."""
+    return sequence.translate(_COMPLEMENT)
+
+
+def reverse_only(sequence: str) -> str:
+    """Return the reversed sequence WITHOUT complementing (preserves case)."""
+    return sequence[::-1]
+
+
 def format_origin_block(sequence: str, line_width: int = 60, block_size: int = 10) -> str:
     """
     Format a DNA sequence in NCBI GenBank ORIGIN style.
