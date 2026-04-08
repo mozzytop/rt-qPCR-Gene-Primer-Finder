@@ -289,6 +289,7 @@ for key, default in {
     "rev_primer": "",
     "reference": "",
     "auto_search_done": False,
+    "last_ncbi_query": "",
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -624,7 +625,7 @@ with tab_main:
 
         # Reset downstream state
         for k in ["pmc_articles", "verified_pairs", "final_report", "final_report_html", "fwd_primer",
-                   "rev_primer", "reference", "auto_search_done", "selected_accession"]:
+                   "rev_primer", "reference", "auto_search_done", "selected_accession", "last_ncbi_query"]:
             st.session_state[k] = "" if isinstance(st.session_state.get(k), str) else (
                 [] if isinstance(st.session_state.get(k), list) else False
             )
@@ -669,6 +670,18 @@ with tab_main:
             # ── Gene name search ─────────────────────────────────────
             st.session_state.gene = inp
             st.session_state.input_type = "gene_name"
+
+            # Build and store the initial NCBI query string
+            _gene = inp.strip()
+            if organism.lower() in ("human", "homo sapiens"):
+                _org_name = "Homo sapiens"
+            elif organism.lower() in ("mouse", "mus musculus"):
+                _org_name = "Mus musculus"
+            else:
+                _org_name = organism.strip()
+            _initial_query = f'("{_gene}"[Title]) AND "{_org_name}"[Organism] AND mRNA[Title]'
+            st.session_state.last_ncbi_query = _initial_query
+
             with st.spinner("Querying NCBI Nucleotide…"):
                 summaries = search_nucleotide(inp, organism, retmax=100)
                 st.session_state.summaries = summaries
@@ -707,6 +720,57 @@ with tab_main:
             help="This adjusts the Gene Input & Variant Selection result count.",
         )
 
+        # ── Post-Search Query Refinement ──────────────────────────────
+        if st.session_state.last_ncbi_query:
+            st.markdown("---")
+            st.markdown("##### 🔍 Refine NCBI Search Query")
+            st.caption(
+                "The query string below was used for the initial search. "
+                "Edit it to add, remove, or modify search terms, then click **Run Refined Search**."
+            )
+            refined_query = st.text_input(
+                "NCBI Query String",
+                value=st.session_state.last_ncbi_query,
+                key="refined_query_input",
+                help="Edit this Entrez query string and re-run to refine results.",
+            )
+            if st.button("Run Refined Search", key="run_refined_search", use_container_width=True):
+                _set_entrez()
+                st.session_state.last_ncbi_query = refined_query
+                with st.spinner("Running refined NCBI query…"):
+                    try:
+                        handle = Entrez.esearch(
+                            db="nucleotide", term=refined_query, retmax=100, usehistory="y",
+                        )
+                        record = Entrez.read(handle)
+                        handle.close()
+                        ids = record.get("IdList", [])
+                        if not ids:
+                            st.warning("Refined search returned no results. Try adjusting your query.")
+                        else:
+                            handle = Entrez.esummary(db="nucleotide", id=",".join(ids), retmax=100)
+                            raw_summaries = Entrez.read(handle)
+                            handle.close()
+                            refined_results = []
+                            for s in raw_summaries:
+                                acc = s.get("AccessionVersion", s.get("Caption", ""))
+                                title = s.get("Title", "")
+                                length = int(s.get("Length", 0))
+                                link = f"https://www.ncbi.nlm.nih.gov/nuccore/{acc}"
+                                refined_results.append({
+                                    "id": str(s["Id"]),
+                                    "title": title,
+                                    "accession": acc,
+                                    "length": length,
+                                    "link": link,
+                                    "score": 0,
+                                })
+                            st.session_state.summaries = refined_results
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Refined search failed: {e}")
+            st.markdown("---")
+
         # Selection UI
         options = [f'{r["accession"]}  —  {r["title"][:80]}  ({r["length"]:,} bp)' for r in results]
         with st.form(key="variant_selection_form"):
@@ -742,15 +806,40 @@ with tab_main:
             st.markdown(f"[NCBI Link]({link})")
         st.markdown(f"CDS span: **{cds.cds_start}..{cds.cds_end}** &nbsp;|&nbsp; Filtered bases: **{len(filtered)}**")
 
+        # ── Sequence Summary Statistics ───────────────────────────────
+        st.markdown("#### 📊 Sequence Summary")
+        cds_length = len(filtered)
+        protein_size = cds_length // 3
+        scol1, scol2, scol3 = st.columns(3)
+        with scol1:
+            st.metric("Total CDS Length", f"{cds_length:,} bp")
+        with scol2:
+            st.metric("Protein Size", f"{protein_size:,} aa")
+        with scol3:
+            # Amplicon size will be calculated dynamically when primers are available
+            _fwd_for_stats = filter_dna(st.session_state.fwd_primer).upper() if st.session_state.fwd_primer else ""
+            _rev_for_stats = filter_dna(st.session_state.rev_primer).upper() if st.session_state.rev_primer else ""
+            if _fwd_for_stats and _rev_for_stats:
+                _fwd_pos = find_primer_in_sequence(_fwd_for_stats, filtered)
+                _rev_rc = reverse_complement(_rev_for_stats)
+                _rev_rc_pos = find_primer_in_sequence(_rev_rc, filtered)
+                if _fwd_pos is not None and _rev_rc_pos is not None:
+                    _amplicon_size = (_rev_rc_pos + len(_rev_rc)) - _fwd_pos
+                    st.metric("Amplicon Size", f"{_amplicon_size:,} bp")
+                else:
+                    st.metric("Amplicon Size", "— (verify primers)")
+            else:
+                st.metric("Amplicon Size", "— (enter primers)")
+
         with st.expander("ORIGIN (GenBank-formatted CDS)", expanded=False):
-            st.markdown(f'<div class="sequence-box">{format_origin_block(filtered)}</div>', unsafe_allow_html=True)
+            st.code(format_origin_block(filtered), language=None)
 
         if cds.translation:
             with st.expander("Amino-Acid Translation", expanded=False):
-                st.markdown(f'<div class="sequence-box">{cds.translation}</div>', unsafe_allow_html=True)
+                st.code(cds.translation, language=None)
 
         with st.expander("Filtered DNA (continuous)", expanded=False):
-            st.markdown(f'<div class="sequence-box">{format_filtered_dna(filtered)}</div>', unsafe_allow_html=True)
+            st.code(format_filtered_dna(filtered), language=None)
 
         st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
 
@@ -873,18 +962,24 @@ with tab_main:
             for idx, pair in enumerate(pairs):
                 exp_title = f"Pair {idx + 1}  —  {pair.source_pmcid}  |  {pair.title[:70]}"
                 with st.expander(exp_title, expanded=(idx == 0)):
-                    st.markdown(
-                        f"""<div class="verified-pair-box">
-<span class="label">Forward Primer</span><br>
-<span class="primer-badge primer-fwd">{org_label} {gene_upper} Primer Sequence: Forward : 5'-{pair.forward}-3'</span>
-<span class="status-pill status-success">● CDS {pair.fwd_strand}, pos {pair.fwd_position}</span><br><br>
-<span class="label">Reverse Primer</span><br>
-<span class="primer-badge primer-rev">{org_label} {gene_upper} Primer Sequence: Reverse : 5'-{pair.reverse}-3'</span>
-<span class="status-pill status-success">● CDS {pair.rev_strand}, pos {pair.rev_position}</span><br><br>
-<span class="label">Reverse Complement</span><br>
-<span class="primer-badge primer-rc">{org_label} {gene_upper} Primer Sequence: Reverse Comp. : 5'-{pair.reverse_comp}-3'</span>
-</div>""",
-                        unsafe_allow_html=True,
+                    st.markdown("**Forward Primer:**")
+                    st.code(
+                        f"Forward Primer: (CDS sense, pos {pair.fwd_position})\n"
+                        f"5'-{pair.forward}-3'",
+                        language=None,
+                    )
+
+                    st.markdown("**Reverse Primer:**")
+                    st.code(
+                        f"Reverse Primer: (CDS antisense, pos {pair.rev_position})\n"
+                        f"5'-{pair.reverse}-3'",
+                        language=None,
+                    )
+
+                    st.markdown("**Reverse Complement:**")
+                    st.code(
+                        f"Reverse Complement: 5'-{pair.reverse_comp}-3'",
+                        language=None,
                     )
 
                     # Clickable reference links
@@ -1013,50 +1108,64 @@ with tab_main:
             vcol1, vcol2 = st.columns(2)
             with vcol1:
                 if result["fwd_maps"]:
+                    st.code(
+                        f"Forward Primer: (CDS sense, pos {result['fwd_sense_pos']})\n"
+                        f"5'-{fwd_clean}-3'",
+                        language=None,
+                    )
                     st.markdown(
-                        f'<span class="primer-badge primer-fwd-verification">FWD: {fwd_clean}</span><br>'
                         f'<span class="status-pill status-success">● sense strand, pos {result["fwd_sense_pos"]}</span>',
                         unsafe_allow_html=True,
                     )
                 elif result["fwd_antisense_pos"] is not None:
+                    st.code(f"FWD: {fwd_clean}", language=None)
                     st.markdown(
-                        f'<span class="primer-badge primer-fwd-verification">FWD: {fwd_clean}</span><br>'
                         '<span class="status-pill status-error">● Found only on antisense strand; forward primers must match the CDS sense strand</span>',
                         unsafe_allow_html=True,
                     )
                 else:
+                    st.code(f"FWD: {fwd_clean}", language=None)
                     st.markdown(
-                        f'<span class="primer-badge primer-fwd-verification">FWD: {fwd_clean}</span><br>'
-                        f'<span class="status-pill status-error">● Not found in CDS</span>',
+                        '<span class="status-pill status-error">● Not found in CDS</span>',
                         unsafe_allow_html=True,
                     )
             with vcol2:
                 if result["rev_maps"]:
+                    st.code(
+                        f"Reverse Primer: (CDS antisense, pos {result['reverse_antisense_binding_pos']})\n"
+                        f"5'-{rev_clean}-3'",
+                        language=None,
+                    )
                     st.markdown(
-                        f'<span class="primer-badge primer-rev">REV: {rev_clean}</span><br>'
                         f'<span class="status-pill status-success">● antisense strand, pos {result["reverse_antisense_binding_pos"]}</span>',
                         unsafe_allow_html=True,
                     )
                 elif result["rev_sense_pos"] is not None:
+                    st.code(f"REV: {rev_clean}", language=None)
                     st.markdown(
-                        f'<span class="primer-badge primer-rev">REV: {rev_clean}</span><br>'
                         '<span class="status-pill status-error">● Found only on the CDS sense strand; reverse primers must bind the antisense strand</span>',
                         unsafe_allow_html=True,
                     )
                 else:
+                    st.code(f"REV: {rev_clean}", language=None)
                     st.markdown(
-                        f'<span class="primer-badge primer-rev">REV: {rev_clean}</span><br>'
-                        f'<span class="status-pill status-error">● Not found in CDS</span>',
+                        '<span class="status-pill status-error">● Not found in CDS</span>',
                         unsafe_allow_html=True,
                     )
 
             rev_comp = reverse_complement(rev_clean)
-            st.markdown(
-                f'<span class="primer-badge primer-rc">Reverse Complement: {rev_comp}</span>',
-                unsafe_allow_html=True,
-            )
+            st.markdown("**Reverse Complement:**")
+            st.code(f"Reverse Complement: 5'-{rev_comp}-3'", language=None)
 
             if result["both_map"]:
+                # Calculate and display amplicon size in verification context
+                _fwd_p = result["fwd_sense_pos"]
+                _rev_rc = reverse_complement(rev_clean)
+                _rev_rc_p = find_primer_in_sequence(_rev_rc, filtered)
+                if _fwd_p is not None and _rev_rc_p is not None:
+                    _amp = (_rev_rc_p + len(_rev_rc)) - _fwd_p
+                    st.info(f"📏 **Amplicon Size:** {_amp:,} bp (from Forward primer start to Reverse primer target end)")
+
                 st.markdown(
                     '<span class="primer-badge primer-warning">MANUALLY VERIFY SEQUENCES AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!</span>',
                     unsafe_allow_html=True,
