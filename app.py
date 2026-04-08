@@ -807,7 +807,7 @@ with tab_main:
         st.markdown(f"CDS span: **{cds.cds_start}..{cds.cds_end}** &nbsp;|&nbsp; Filtered bases: **{len(filtered)}**")
 
         # ── Sequence Summary Statistics ───────────────────────────────
-        st.markdown("#### 📊 Sequence Summary")
+        st.markdown("#### Sequence Summary")
         cds_length = len(filtered)
         protein_size = cds_length // 3
         scol1, scol2, scol3 = st.columns(3)
