@@ -228,7 +228,7 @@ st.markdown(
 )
 st.markdown(
     '<p class="sub-header">'
-    "MANUALLY VERIFY SEQUENCES AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!"
+    "MANUALLY VERIFY YOUR SEQUENCE, PRIMER AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES"
     "</p>",
     unsafe_allow_html=True,
 )
