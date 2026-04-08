@@ -111,7 +111,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     font-weight: 500; letter-spacing: 0.03em;
 }
 .primer-fwd { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
-.primer-rev { background: rgba(3,112,123); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; } 
+.primer-rev { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; } 
 .primer-rc  { background: rgba(108,99,255,0.12); border: 1px solid rgba(108,99,255,0.3); color: #6c63ff; }
 
 .status-pill {
