@@ -1164,10 +1164,10 @@ with tab_main:
                 _rev_rc_p = find_primer_in_sequence(_rev_rc, filtered)
                 if _fwd_p is not None and _rev_rc_p is not None:
                     _amp = (_rev_rc_p + len(_rev_rc)) - _fwd_p
-                    st.info(f"📏 **Amplicon Size:** {_amp:,} bp (from Forward primer start to Reverse primer target end)")
+                    st.info(f" **Amplicon Size:** {_amp:,} bp (from Forward primer start to Reverse primer target end)")
 
                 st.markdown(
-                    '<span class="primer-badge primer-warning">MANUALLY VERIFY SEQUENCES AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!</span>',
+                    '<span class="primer-badge primer-warning">MANUALLY VERIFY SEQUENCE AND PRIMER SOURCES!</span>',
                     unsafe_allow_html=True,
                 )
                 st.success("Both primers verified against the CDS!")
