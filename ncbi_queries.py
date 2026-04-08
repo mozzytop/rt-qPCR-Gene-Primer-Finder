@@ -71,26 +71,48 @@ def parse_ncbi_url(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 20) -> list[dict]:
+def search_nucleotide(gene: str, organism: str = "Homo sapiens", retmax: int = 100) -> list[dict]:
     """Search NCBI Nucleotide for *gene* in *organism*.
 
     Returns a list of dicts with: id, title, accession, length, link, score.
     Results are scored and sorted so the best "transcript variant 1, mRNA"
     record appears first, but ALL results are returned for user selection.
     """
+    gene = gene.strip()
     if organism.lower() in ("human", "homo sapiens"):
-        org_query = '("Homo sapiens"[Organism] OR "human gene")'
+        organism_name = "Homo sapiens"
     elif organism.lower() in ("mouse", "mus musculus"):
-        org_query = '("Mus musculus"[Organism] OR "mouse gene")'
+        organism_name = "Mus musculus"
     else:
-        org_query = f'("{organism}"[Organism])'
+        organism_name = organism.strip()
 
-    query = f"{gene} AND {org_query}"
-    handle = Entrez.esearch(db="nucleotide", term=query, retmax=retmax, usehistory="y")
-    record = Entrez.read(handle)
-    handle.close()
+    org_query = f'"{organism_name}"[Organism]'
 
-    ids = record.get("IdList", [])
+    # Query titles first so gene symbols like HES1 do not float unrelated
+    # transcripts to the top. Fall back to the broader legacy query only if
+    # the title-constrained search is sparse.
+    query_variants = [
+        f'("{gene}"[Title]) AND {org_query} AND mRNA[Title]',
+        f'("{gene}"[Title]) AND {org_query}',
+        f'("{gene}"[Gene Name]) AND {org_query} AND mRNA[Title]',
+        f"{gene} AND {org_query}",
+    ]
+
+    ids: list[str] = []
+    seen_ids: set[str] = set()
+    for query in query_variants:
+        handle = Entrez.esearch(db="nucleotide", term=query, retmax=retmax, usehistory="y")
+        record = Entrez.read(handle)
+        handle.close()
+        for found_id in record.get("IdList", []):
+            if found_id not in seen_ids:
+                seen_ids.add(found_id)
+                ids.append(found_id)
+            if len(ids) >= retmax:
+                break
+        if len(ids) >= retmax:
+            break
+
     if not ids:
         return []
 
@@ -221,6 +243,29 @@ def fetch_cds_by_accession(accession: str) -> CDSResult:
 # ═════════════════════════════════════════════════════════════════════
 
 
+def _fetch_pmc_articles_from_query(query: str, retmax: int) -> list[dict]:
+    """Run a PMC query and fetch article metadata for the matching IDs."""
+    handle = Entrez.esearch(db="pmc", term=query, retmax=retmax, sort="relevance")
+    record = Entrez.read(handle)
+    handle.close()
+
+    ids = record.get("IdList", [])
+    if not ids:
+        return []
+
+    articles: list[dict] = []
+    for pmc_id in ids:
+        try:
+            article_info = _fetch_pmc_summary(pmc_id)
+            if article_info:
+                articles.append(article_info)
+        except Exception:
+            continue
+        time.sleep(0.35)  # respect rate limit
+
+    return articles
+
+
 def search_pmc_for_primers(gene: str, organism: str = "human", retmax: int = 20) -> list[dict]:
     """
     Search **PubMed Central** (not regular PubMed) for open-access articles
@@ -235,37 +280,28 @@ def search_pmc_for_primers(gene: str, organism: str = "human", retmax: int = 20)
         f'"{gene}" AND (primer OR "PCR" OR "RT-PCR" OR "qPCR" OR "real-time PCR")'
         f' AND ("{organism}") AND open access[filter]'
     )
-    handle = Entrez.esearch(db="pmc", term=query, retmax=retmax, sort="relevance")
-    record = Entrez.read(handle)
-    handle.close()
+    articles = _fetch_pmc_articles_from_query(query, retmax)
+    if articles:
+        return articles
 
-    ids = record.get("IdList", [])
-    if not ids:
-        # Fallback: try without open access filter
-        query_fallback = (
-            f'"{gene}" AND (primer OR "PCR" OR "RT-PCR" OR "qPCR")'
-            f' AND ("{organism}")'
-        )
-        handle = Entrez.esearch(db="pmc", term=query_fallback, retmax=retmax, sort="relevance")
-        record = Entrez.read(handle)
-        handle.close()
-        ids = record.get("IdList", [])
+    # Fallback: try without the open-access filter and slightly shorter PCR terms.
+    query_fallback = (
+        f'"{gene}" AND (primer OR "PCR" OR "RT-PCR" OR "qPCR")'
+        f' AND ("{organism}")'
+    )
+    return _fetch_pmc_articles_from_query(query_fallback, retmax)
 
-    if not ids:
-        return []
 
-    # Fetch article summaries from PMC
-    articles: list[dict] = []
-    for pmc_id in ids:
-        try:
-            article_info = _fetch_pmc_summary(pmc_id)
-            if article_info:
-                articles.append(article_info)
-        except Exception:
-            continue
-        time.sleep(0.35)  # respect rate limit
-
-    return articles
+def search_pmc_for_gene_mentions(gene: str, retmax: int = 100) -> list[dict]:
+    """
+    Broader PMC fallback for cases where a paper contains primers in a table or
+    supplement but does not rank well for PCR-specific queries.
+    """
+    query = f'"{gene}" AND open access[filter]'
+    articles = _fetch_pmc_articles_from_query(query, retmax)
+    if articles:
+        return articles
+    return _fetch_pmc_articles_from_query(f'"{gene}"', retmax)
 
 
 def _fetch_pmc_summary(pmc_id: str) -> Optional[dict]:
