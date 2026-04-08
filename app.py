@@ -112,7 +112,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 }
 .primer-fwd { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
 .primer-rev { background: rgba(14,165,233,0.12); border: 1px solid rgba(14,165,233,0.3); color: #0ea5e9; }
-.primer-rc  { background: rgba(108,99,255,0.12); border: 1px solid rgba(108,99,255,0.3); color: #6c63ff; }
+.primer-rc { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); color: #f59e0b; }
 
 .status-pill {
     display: inline-flex; align-items: center; gap: 0.4rem;
