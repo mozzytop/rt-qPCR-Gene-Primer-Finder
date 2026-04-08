@@ -45,6 +45,7 @@ from ncbi_queries import (
     fetch_genbank_record,
     extract_cds,
     search_pmc_for_primers,
+    search_pmc_for_gene_mentions,
     search_pubmed_for_primers,
     extract_and_verify_primers,
     CDSResult,
@@ -232,20 +233,36 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def _has_secret_ncbi_credentials() -> bool:
+    """Return True when Streamlit secrets contain an NCBI email."""
+    if "ncbi" in st.secrets:
+        ncbi_secrets = st.secrets["ncbi"]
+        return bool(
+            str(ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or "").strip()
+        )
+    return bool(str(st.secrets.get("ncbi_email", "") or "").strip())
+
+
 # ── Sidebar config ───────────────────────────────────────────────────
 
 with st.sidebar:
     st.markdown("### Configuration")
-    email = st.text_input(
-        "NCBI Email (required)",
-        placeholder="you@example.com",
-        help="NCBI requires an email for Entrez API usage.",
-    )
-    api_key = st.text_input(
-        "NCBI API Key (optional)",
-        type="password",
-        help="An API key raises the rate limit from 3 to 10 requests/sec.",
-    )
+    if _has_secret_ncbi_credentials():
+        email = ""
+        api_key = ""
+        st.success("Logged in as ESFCOM Lab Member")
+    else:
+        email = st.text_input(
+            "NCBI Email (required)",
+            placeholder="you@example.com",
+            help="NCBI requires an email for Entrez API usage.",
+        )
+        api_key = st.text_input(
+            "NCBI API Key (optional)",
+            type="password",
+            help="An API key raises the rate limit from 3 to 10 requests/sec.",
+        )
     organism = st.selectbox("Organism", ["Homo sapiens", "Mus musculus"], index=0)
 
     st.markdown("---")
@@ -267,6 +284,7 @@ for key, default in {
     "gene": "",
     "input_type": "gene_name",
     "summaries": [],
+    "variant_result_limit": 10,
     "selected_accession": "",
     "pmc_articles": [],
     "verified_pairs": [],
@@ -283,13 +301,45 @@ for key, default in {
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
+def _get_ncbi_credentials() -> tuple[str, str]:
+    """Prefer Streamlit secrets when present, otherwise use manual sidebar input."""
+    secret_email = ""
+    secret_api_key = ""
+
+    if "ncbi" in st.secrets:
+        ncbi_secrets = st.secrets["ncbi"]
+        secret_email = str(
+            ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or ""
+        ).strip()
+        secret_api_key = str(
+            ncbi_secrets.get("ncbi_api_key") or ncbi_secrets.get("api_key") or ""
+        ).strip()
+    else:
+        secret_email = str(st.secrets.get("ncbi_email", "") or "").strip()
+        secret_api_key = str(
+            st.secrets.get("ncbi_api_key", "") or st.secrets.get("api_key", "") or ""
+        ).strip()
+
+    if secret_email:
+        return secret_email, secret_api_key
+
+    manual_email = email.strip()
+    manual_api_key = api_key.strip()
+    if manual_email:
+        return manual_email, manual_api_key
+
+    return "", ""
+
+
 def _set_entrez():
-    if not email:
-        st.error("Please enter your NCBI email in the sidebar.")
+    resolved_email, resolved_api_key = _get_ncbi_credentials()
+
+    if not resolved_email:
+        st.error("Please enter your NCBI email in the sidebar or add it to Streamlit secrets.")
         st.stop()
-    Entrez.email = email
-    if api_key:
-        Entrez.api_key = api_key
+    Entrez.email = resolved_email
+    Entrez.api_key = resolved_api_key or None
+
 
 
 def _detect_input_type(text: str) -> str:
@@ -322,6 +372,32 @@ def _make_ref_links(pair: VerifiedPrimerPair) -> str:
     if links:
         parts.append(" · ".join(links))
     return "\n\n".join(parts) if parts else ""
+
+
+def _scan_pmc_articles_for_pairs(
+    articles: list[dict],
+    gene_name: str,
+    filtered_cds: str,
+    progress_label: str,
+) -> list[VerifiedPrimerPair]:
+    """Extract and verify primers across a batch of PMC articles."""
+    verified_pairs: list[VerifiedPrimerPair] = []
+    progress = st.progress(0, text=progress_label)
+
+    for i, art in enumerate(articles):
+        title = art.get("title", "Untitled article")
+        progress.progress(
+            (i + 1) / len(articles),
+            text=f"Scanning article {i + 1}/{len(articles)}: {title[:60]}…",
+        )
+        try:
+            pairs = extract_and_verify_primers(art, gene_name, filtered_cds)
+            verified_pairs.extend(pairs)
+        except Exception:
+            continue
+
+    progress.empty()
+    return verified_pairs
 
 
 def _find_all_occurrences(sequence: str, motif: str) -> list[tuple[int, int]]:
@@ -534,16 +610,17 @@ with tab_main:
         "or paste a **raw DNA sequence**."
     )
 
-    col_input, col_btn = st.columns([4, 1])
-    with col_input:
-        user_input = st.text_area(
-            "Input",
-            height=80,
-            placeholder="GLI1  or  https://www.ncbi.nlm.nih.gov/nuccore/NM_005269.3  or  ATGTTCAACT...",
-            label_visibility="collapsed",
-        )
-    with col_btn:
-        search_btn = st.button("Search", use_container_width=True)
+    with st.form(key="search_form"):
+        col_input, col_btn = st.columns([4, 1])
+
+        with col_input:
+            user_input = st.text_input(
+                "Input",
+                placeholder="GLI1  or  https://www.ncbi.nlm.nih.gov/nuccore/NM_005269.3  or  ATGTTCAACT...",
+                label_visibility="collapsed",
+            )
+        with col_btn:
+            search_btn = st.form_submit_button("Search", use_container_width=True)
 
     if search_btn and user_input.strip():
         _set_entrez()
@@ -598,7 +675,7 @@ with tab_main:
             st.session_state.gene = inp
             st.session_state.input_type = "gene_name"
             with st.spinner("Querying NCBI Nucleotide…"):
-                summaries = search_nucleotide(inp, organism)
+                summaries = search_nucleotide(inp, organism, retmax=100)
                 st.session_state.summaries = summaries
 
     # ── Variant selection table ──────────────────────────────────────
@@ -607,8 +684,11 @@ with tab_main:
             and st.session_state.summaries
             and st.session_state.cds is None):
 
-        results = st.session_state.summaries[:10]  # show top 10
-        st.markdown(f"**{len(results)}** results found. Select a variant:")
+        display_limit = int(st.session_state.variant_result_limit)
+        results = st.session_state.summaries[:display_limit]
+        st.markdown(
+            f"Showing **{len(results)}** of **{len(st.session_state.summaries)}** results. Select a variant:"
+        )
 
         # Build HTML table
         table_html = '<table class="variant-table"><thead><tr>'
@@ -625,10 +705,18 @@ with tab_main:
         table_html += "</tbody></table>"
         st.markdown(table_html, unsafe_allow_html=True)
 
+        st.selectbox(
+            "How many gene input results should be shown?",
+            options=[10, 50, 100],
+            key="variant_result_limit",
+            help="This adjusts the Gene Input & Variant Selection result count.",
+        )
+
         # Selection UI
         options = [f'{r["accession"]}  —  {r["title"][:80]}  ({r["length"]:,} bp)' for r in results]
-        selected = st.selectbox("Choose a variant", options, index=0)
-        select_btn = st.button("Use Selected Variant", use_container_width=True)
+        with st.form(key="variant_selection_form"):
+            selected = st.selectbox("Choose a variant", options, index=0)
+            select_btn = st.form_submit_button("Use Selected Variant", use_container_width=True)
 
         if select_btn:
             _set_entrez()
@@ -694,29 +782,81 @@ with tab_main:
             gene_name = st.session_state.gene
 
             with st.spinner("Searching PubMed Central…"):
-                articles = search_pmc_for_primers(gene_name, org_short)
-                st.session_state.pmc_articles = articles
+                articles = search_pmc_for_primers(gene_name, org_short, retmax=20)
+
+            all_articles = list(articles)
+            all_verified: list[VerifiedPrimerPair] = []
 
             if not articles:
-                st.warning("No PMC articles found. Try manual primer input in Step 3.")
+                with st.spinner("No focused PMC hits found. Expanding to a broader PMC gene search…"):
+                    all_articles = search_pmc_for_gene_mentions(gene_name, retmax=100)
+
+                if not all_articles:
+                    st.session_state.pmc_articles = []
+                    st.session_state.verified_pairs = []
+                    st.session_state.auto_search_done = True
+                    st.warning("No PMC articles found. Try manual primer input in Step 3.")
+                else:
+                    st.info(
+                        f"Focused PMC search returned no hits. Scanning **{len(all_articles)}** "
+                        f"broader full-text articles mentioning **{gene_name.upper()}**…"
+                    )
+                    all_verified = _scan_pmc_articles_for_pairs(
+                        all_articles,
+                        gene_name,
+                        filtered,
+                        "Scanning broader PMC full-text results…",
+                    )
+
+                    st.session_state.pmc_articles = all_articles
+                    st.session_state.verified_pairs = all_verified
+                    st.session_state.auto_search_done = True
+
+                    if all_verified:
+                        best = all_verified[0]
+                        st.session_state.fwd_primer = best.forward
+                        st.session_state.rev_primer = best.reverse
+                        st.session_state.reference = best.citation
             else:
                 st.info(f"Found **{len(articles)}** PMC articles. Scanning for primers…")
+                all_verified = _scan_pmc_articles_for_pairs(
+                    articles,
+                    gene_name,
+                    filtered,
+                    "Extracting & verifying primers…",
+                )
 
-                all_verified: list[VerifiedPrimerPair] = []
-                progress = st.progress(0, text="Extracting & verifying primers…")
+                if not all_verified:
+                    with st.spinner("Expanding to a broader PMC gene search…"):
+                        broader_articles = search_pmc_for_gene_mentions(gene_name, retmax=100)
 
-                for i, art in enumerate(articles):
-                    progress.progress(
-                        (i + 1) / len(articles),
-                        text=f"Scanning article {i + 1}/{len(articles)}: {art['title'][:60]}…",
-                    )
-                    try:
-                        pairs = extract_and_verify_primers(art, gene_name, filtered)
-                        all_verified.extend(pairs)
-                    except Exception:
-                        continue
+                    seen_article_ids = {
+                        art.get("pmcid") or art.get("pmc_id") or art.get("title", "")
+                        for art in all_articles
+                    }
+                    extra_articles = [
+                        art for art in broader_articles
+                        if (art.get("pmcid") or art.get("pmc_id") or art.get("title", ""))
+                        not in seen_article_ids
+                    ]
 
-                progress.empty()
+                    if extra_articles:
+                        st.info(
+                            f"No verified pairs found in the focused PMC search. "
+                            f"Scanning **{len(extra_articles)}** additional full-text articles mentioning "
+                            f"**{gene_name.upper()}**…"
+                        )
+                        all_articles.extend(extra_articles)
+                        all_verified.extend(
+                            _scan_pmc_articles_for_pairs(
+                                extra_articles,
+                                gene_name,
+                                filtered,
+                                "Scanning broader PMC full-text results…",
+                            )
+                        )
+
+                st.session_state.pmc_articles = all_articles
                 st.session_state.verified_pairs = all_verified
                 st.session_state.auto_search_done = True
 
