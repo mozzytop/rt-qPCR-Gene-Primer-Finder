@@ -106,6 +106,12 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     overflow-x: auto; white-space: pre; max-height: 400px; overflow-y: auto;
 }
 
+.primer-warning {
+    background: rgba(255, 8, 32, 0.33);
+    border: 1px solid rgba(255, 8, 32, 0.95);
+    color: #f50b0b;
+}
+
 .primer-badge {
     display: inline-block; padding: 0.35rem 0.85rem; border-radius: 8px;
     font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;
@@ -226,13 +232,6 @@ st.markdown(
     "</p>",
     unsafe_allow_html=True,
 )
-st.markdown(
-    '<p class="sub-header">'
-    "MANUALLY VERIFY YOUR SEQUENCE, PRIMER AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES"
-    "</p>",
-    unsafe_allow_html=True,
-)
-
 
 def _has_secret_ncbi_credentials() -> bool:
     """Return True when Streamlit secrets contain an NCBI email."""
@@ -888,7 +887,9 @@ with tab_main:
 <span class="status-pill status-success">● CDS {pair.rev_strand}, pos {pair.rev_position}</span><br><br>
 <span class="label">Reverse Complement</span><br>
 <span class="primer-badge primer-rc">{org_label} {gene_upper} Primer Sequence: Reverse Comp. : 5'-{pair.reverse_comp}-3'</span>
-</div>""",
+</div>
+<span class="label">Warning</span><br>
+<span class="primer-badge primer-warning">MANUALLY VERIFY YOUR SEQUENCE, PRIMER AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!</span>""",
                         unsafe_allow_html=True,
                     )
 
