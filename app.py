@@ -723,7 +723,7 @@ with tab_main:
         # ── Post-Search Query Refinement ──────────────────────────────
         if st.session_state.last_ncbi_query:
             st.markdown("---")
-            st.markdown("##### 🔍 Refine NCBI Search Query")
+            st.markdown("##### Refine NCBI Search Query")
             st.caption(
                 "The query string below was used for the initial search. "
                 "Edit it to add, remove, or modify search terms, then click **Run Refined Search**."
