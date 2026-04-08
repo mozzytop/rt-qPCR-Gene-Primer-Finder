@@ -8,9 +8,9 @@ formatted report generation.
 
 | Tab | What it does |
 |-----|--------------|
-| **🧬 Primer Finder** | Full workflow: NCBI gene lookup → variant selection → PMC primer search → CDS verification → formatted report |
-| **🧹 Filter DNA** | Standalone utility: strips non-DNA characters from messy sequences, shows base composition + GC% |
-| **🔄 Sequence Calculator** | Standalone utility: computes Reverse, Complement, and Reverse Complement |
+| **Primer Finder** | Full workflow: NCBI gene lookup → variant selection → PMC primer search → CDS verification → formatted report |
+| **Filter DNA** | Standalone utility: strips non-DNA characters from messy sequences, shows base composition + GC% |
+| **Sequence Calculator** | Standalone utility: computes Reverse, Complement, and Reverse Complement |
 
 ### Primer Finder Workflow
 
@@ -98,7 +98,7 @@ to keep it alive automatically.
    - **Secret:** Your full Streamlit app URL (e.g. `https://rt-qpcr-gene-primer-finder.streamlit.app/`)
 6. Click **"Add secret"**
 
-> ⚠️ **Important:** The URL must include the trailing `/` and the `https://` prefix.
+> **Important:** The URL must include the trailing `/` and the `https://` prefix.
 
 #### Step 2 — Verify the Workflow is Active
 
@@ -113,10 +113,10 @@ to keep it alive automatically.
 2. Click the **"keep-awake"** job
 3. Expand **"Ping Streamlit App"** to see the output:
    ```
-   🔔 Pinging: https://your-app.streamlit.app/
-   ⏰ Timestamp: 2026-04-07 16:00:00 UTC
-   📡 HTTP Status: 200
-   ✅ App is awake and responding (HTTP 200)
+   Pinging: https://your-app.streamlit.app/
+   Timestamp: 2026-04-07 16:00:00 UTC
+   HTTP Status: 200
+   App is awake and responding (HTTP 200)
    ```
 
 ### Schedule
