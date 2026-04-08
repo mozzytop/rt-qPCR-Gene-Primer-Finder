@@ -1216,7 +1216,7 @@ with tab_main:
             dcol1, dcol2, dcol3 = st.columns(3)
             with dcol1:
                 st.download_button(
-                    label="Download TXT Report",
+                    label="Download as a .TXT File",
                     data=st.session_state.final_report,
                     file_name=f"{report_basename}.txt",
                     mime="text/plain",
@@ -1224,7 +1224,7 @@ with tab_main:
                 )
             with dcol2:
                 st.download_button(
-                    label="Download PDF Report",
+                    label="Download as a PDF",
                     data=pdf_bytes,
                     file_name=f"{report_basename}.pdf",
                     mime="application/pdf",
@@ -1232,7 +1232,7 @@ with tab_main:
                 )
             with dcol3:
                 st.download_button(
-                    label="Download Word Report",
+                    label="Download as a Word",
                     data=docx_bytes,
                     file_name=f"{report_basename}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
