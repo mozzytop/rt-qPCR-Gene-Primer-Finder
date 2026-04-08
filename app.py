@@ -106,20 +106,16 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     overflow-x: auto; white-space: pre; max-height: 400px; overflow-y: auto;
 }
 
-.primer-warning {
-    background: rgba(255, 8, 32, 0.33);
-    border: 1px solid rgba(255, 8, 32, 0.95);
-    color: #f50b0b;
-}
-
 .primer-badge {
     display: inline-block; padding: 0.35rem 0.85rem; border-radius: 8px;
     font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;
     font-weight: 500; letter-spacing: 0.03em;
 }
 .primer-fwd { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
+.primer-fwd-verification { background: rgba(168,85,247,0.16); border: 1px solid rgba(168,85,247,0.42); color: #d8b4fe; }
 .primer-rev { background: rgba(14,165,233,0.12); border: 1px solid rgba(14,165,233,0.3); color: #0ea5e9; }
 .primer-rc { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); color: #f59e0b; }
+.primer-warning { background: rgba(255, 8, 32, 0.33); border: 1px solid rgba(255, 8, 32, 0.95); color: #f50b0b; }
 
 .status-pill {
     display: inline-flex; align-items: center; gap: 0.4rem;
@@ -232,6 +228,13 @@ st.markdown(
     "</p>",
     unsafe_allow_html=True,
 )
+st.markdown(
+    '<p class="sub-header">'
+    "MANUALLY VERIFY SEQUENCES AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!"
+    "</p>",
+    unsafe_allow_html=True,
+)
+
 
 def _has_secret_ncbi_credentials() -> bool:
     """Return True when Streamlit secrets contain an NCBI email."""
@@ -887,9 +890,7 @@ with tab_main:
 <span class="status-pill status-success">● CDS {pair.rev_strand}, pos {pair.rev_position}</span><br><br>
 <span class="label">Reverse Complement</span><br>
 <span class="primer-badge primer-rc">{org_label} {gene_upper} Primer Sequence: Reverse Comp. : 5'-{pair.reverse_comp}-3'</span>
-</div>
-<span class="label">Warning</span><br>
-<span class="primer-badge primer-warning">MANUALLY VERIFY YOUR SEQUENCE, PRIMER AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!</span>""",
+</div>""",
                         unsafe_allow_html=True,
                     )
 
@@ -1020,19 +1021,19 @@ with tab_main:
             with vcol1:
                 if result["fwd_maps"]:
                     st.markdown(
-                        f'<span class="primer-badge primer-fwd">FWD: {fwd_clean}</span><br>'
+                        f'<span class="primer-badge primer-fwd-verification">FWD: {fwd_clean}</span><br>'
                         f'<span class="status-pill status-success">● sense strand, pos {result["fwd_sense_pos"]}</span>',
                         unsafe_allow_html=True,
                     )
                 elif result["fwd_antisense_pos"] is not None:
                     st.markdown(
-                        f'<span class="primer-badge primer-fwd">FWD: {fwd_clean}</span><br>'
+                        f'<span class="primer-badge primer-fwd-verification">FWD: {fwd_clean}</span><br>'
                         '<span class="status-pill status-error">● Found only on antisense strand; forward primers must match the CDS sense strand</span>',
                         unsafe_allow_html=True,
                     )
                 else:
                     st.markdown(
-                        f'<span class="primer-badge primer-fwd">FWD: {fwd_clean}</span><br>'
+                        f'<span class="primer-badge primer-fwd-verification">FWD: {fwd_clean}</span><br>'
                         f'<span class="status-pill status-error">● Not found in CDS</span>',
                         unsafe_allow_html=True,
                     )
@@ -1063,6 +1064,10 @@ with tab_main:
             )
 
             if result["both_map"]:
+                st.markdown(
+                    '<span class="primer-badge primer-warning">REPLACE THIS WARNING TEXT WITH YOUR MESSAGE</span>',
+                    unsafe_allow_html=True,
+                )
                 st.success("Both primers verified against the CDS!")
 
         st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
