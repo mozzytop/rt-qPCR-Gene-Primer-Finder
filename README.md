@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/26578760/README.md)
 # 🧬 RT-qPCR Gene Primer Finder
 
 A Streamlit-powered bioinformatics automation tool that replaces a manual
