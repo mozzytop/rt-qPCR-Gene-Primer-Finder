@@ -228,13 +228,6 @@ st.markdown(
     "</p>",
     unsafe_allow_html=True,
 )
-st.markdown(
-    '<p class="sub-header">'
-    "MANUALLY VERIFY SEQUENCES AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!"
-    "</p>",
-    unsafe_allow_html=True,
-)
-
 
 def _has_secret_ncbi_credentials() -> bool:
     """Return True when Streamlit secrets contain an NCBI email."""
@@ -1065,7 +1058,7 @@ with tab_main:
 
             if result["both_map"]:
                 st.markdown(
-                    '<span class="primer-badge primer-warning">REPLACE THIS WARNING TEXT WITH YOUR MESSAGE</span>',
+                    '<span class="primer-badge primer-warning">MANUALLY VERIFY SEQUENCES AND SOURCES AS THIS PROGRAM CAN MAKE MISTAKES!</span>',
                     unsafe_allow_html=True,
                 )
                 st.success("Both primers verified against the CDS!")
