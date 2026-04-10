@@ -1,8 +1,12 @@
 name: Keep Streamlit App Awake
 
 # ─────────────────────────────────────────────────────────────────────
-# Pings the deployed Streamlit Community Cloud app every 8 hours to
-# prevent the platform from putting it to sleep after 12h of inactivity.
+# Uses a headless Selenium browser to visit the Streamlit app every
+# 6 hours, establishing a real WebSocket session that resets the
+# platform's 12-hour inactivity timer.
+#
+# If the app is already sleeping, the script automatically clicks the
+# "Yes, get this app back up!" button to wake it.
 #
 # Setup:
 #   1. Go to your GitHub repo → Settings → Secrets → Actions
@@ -13,8 +17,8 @@ name: Keep Streamlit App Awake
 
 on:
   schedule:
-    # Runs every 8 hours (well within the 12h sleep window)
-    - cron: "0 */8 * * *"   # 00:00, 08:00, 16:00 UTC
+    # Every 6 hours (well within the 12h sleep window)
+    - cron: "0 */6 * * *"   # 00:00, 06:00, 12:00, 18:00 UTC
 
   workflow_dispatch:
     # Allows manual triggering from the Actions tab
@@ -22,32 +26,21 @@ on:
 jobs:
   keep-awake:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
-      - name: Ping Streamlit App
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install selenium webdriver-manager
+
+      - name: Wake / ping Streamlit app
         env:
           APP_URL: ${{ secrets.APP_URL }}
-        run: |
-          if [ -z "$APP_URL" ]; then
-            echo "::error::APP_URL secret is not set. Please add it in Settings → Secrets → Actions."
-            exit 1
-          fi
-
-          echo "🔔 Pinging: $APP_URL"
-          echo "⏰ Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 30 \
-            --retry 3 \
-            --retry-delay 10 \
-            "$APP_URL")
-
-          echo "📡 HTTP Status: $HTTP_STATUS"
-
-          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
-            echo "✅ App is awake and responding (HTTP $HTTP_STATUS)"
-          else
-            echo "::warning::App returned HTTP $HTTP_STATUS — it may be starting up or experiencing issues."
-            exit 0  # Don't fail the workflow; Streamlit may be slow to wake
-          fi
+        run: python keep_alive.py
