@@ -162,13 +162,16 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     background: rgba(108,99,255,0.24); color: #c5b8ff; border-radius: 4px; padding: 0 1px;
 }
 
-div.stButton > button {
+/* Gradient accent only for type="primary" (data-testid from Streamlit BaseButton) */
+button[data-testid="stBaseButton-primary"],
+button[data-testid="stBaseButton-primaryFormSubmit"] {
     background: linear-gradient(135deg, #6c63ff, #7c3aed) !important;
     color: white !important; border: none !important; border-radius: 10px !important;
     padding: 0.55rem 1.8rem !important; font-weight: 600 !important;
     transition: all 0.3s ease !important;
 }
-div.stButton > button:hover {
+button[data-testid="stBaseButton-primary"]:hover,
+button[data-testid="stBaseButton-primaryFormSubmit"]:hover {
     box-shadow: 0 4px 20px rgba(108,99,255,0.35) !important;
     transform: translateY(-1px) !important;
 }
@@ -616,7 +619,9 @@ with tab_main:
                 label_visibility="collapsed",
             )
         with col_btn:
-            search_btn = st.form_submit_button("Search", use_container_width=True)
+            search_btn = st.form_submit_button(
+                "Search", type="primary", use_container_width=True
+            )
 
     if search_btn and user_input.strip():
         _set_entrez()
@@ -734,7 +739,11 @@ with tab_main:
                 key="refined_query_input",
                 help="Edit this Entrez query string and re-run to refine results.",
             )
-            if st.button("Run Refined Search", key="run_refined_search", use_container_width=True):
+            if st.button(
+                "Run Refined Search",
+                key="run_refined_search",
+                use_container_width=True,
+            ):
                 _set_entrez()
                 st.session_state.last_ncbi_query = refined_query
                 with st.spinner("Running refined NCBI query…"):
@@ -775,7 +784,11 @@ with tab_main:
         options = [f'{r["accession"]}  —  {r["title"][:80]}  ({r["length"]:,} bp)' for r in results]
         with st.form(key="variant_selection_form"):
             selected = st.selectbox("Choose a variant", options, index=0)
-            select_btn = st.form_submit_button("Use Selected Variant", use_container_width=True)
+            select_btn = st.form_submit_button(
+                "Use Selected Variant",
+                type="primary",
+                use_container_width=True,
+            )
 
         if select_btn:
             _set_entrez()
@@ -858,7 +871,9 @@ with tab_main:
             "and verifies them against the CDS."
         )
 
-        pmc_btn = st.button("Search PMC for Primers", use_container_width=True)
+        pmc_btn = st.button(
+            "Search PMC for Primers", type="primary", use_container_width=True
+        )
 
         if pmc_btn:
             _set_entrez()
@@ -987,7 +1002,11 @@ with tab_main:
                     if ref_md:
                         st.markdown(f"**Reference:** {ref_md}")
 
-                    if st.button(f"Select this pair for report (Double Check Species in PMC Report)", key=f"use_pair_{idx}"):
+                    if st.button(
+                        f"Select this pair for report (Double Check Species in PMC Report)",
+                        key=f"use_pair_{idx}",
+                        type="primary",
+                    ):
                         st.session_state.fwd_primer = pair.forward
                         st.session_state.rev_primer = pair.reverse
                         st.session_state.reference = pair.citation
@@ -1091,7 +1110,7 @@ with tab_main:
                         result = verify_primer_pair(fwd_c[0].sequence, rev_c[0].sequence, filtered)
                         if result["both_map"]:
                             st.success("Verified pair found in pasted text!")
-                            if st.button("Use this pair"):
+                            if st.button("Use this pair", type="primary"):
                                 st.session_state.fwd_primer = result["forward_seq"]
                                 st.session_state.rev_primer = result["reverse_seq"]
                                 st.rerun()
@@ -1183,7 +1202,9 @@ with tab_main:
             unsafe_allow_html=True,
         )
 
-        generate_btn = st.button("Generate Report", use_container_width=True)
+        generate_btn = st.button(
+            "Generate Report", type="primary", use_container_width=True
+        )
         if generate_btn:
             if not fwd_input or not rev_input:
                 st.error("Please enter both primers before generating a report.")
