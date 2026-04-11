@@ -1,15 +1,3 @@
-[README.md](https://github.com/user-attachments/files/26643855/README.md)
----
-title: RT-qPCR Gene Primer Finder
-emoji: 🧬
-colorFrom: blue
-colorTo: purple
-sdk: streamlit
-sdk_version: 1.42.0
-app_file: app.py
-pinned: true
----
-
 # 🧬 RT-qPCR Gene Primer Finder
 
 A Streamlit-powered bioinformatics automation tool that replaces a manual
