@@ -8,12 +8,13 @@ Hugging Face requires a specific metadata block at the very top of the `README.m
 ```yaml
 ---
 title: rt-qPCR Gene Primer Finder
+emoji: 🧬
 colorFrom: blue
 colorTo: green
 sdk: streamlit
 app_file: app.py
 pinned: false
-license: mit
+license: gpl-3.0
 ---
 ```
 
