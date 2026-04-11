@@ -234,12 +234,15 @@ st.markdown(
 
 def _has_secret_ncbi_credentials() -> bool:
     """Return True when Streamlit secrets contain an NCBI email."""
-    if "ncbi" in st.secrets:
-        ncbi_secrets = st.secrets["ncbi"]
-        return bool(
-            str(ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or "").strip()
-        )
-    return bool(str(st.secrets.get("ncbi_email", "") or "").strip())
+    try:
+        if "ncbi" in st.secrets:
+            ncbi_secrets = st.secrets["ncbi"]
+            return bool(
+                str(ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or "").strip()
+            )
+        return bool(str(st.secrets.get("ncbi_email", "") or "").strip())
+    except (FileNotFoundError, KeyError):
+        return False
 
 
 # ── Sidebar config ───────────────────────────────────────────────────
@@ -305,19 +308,22 @@ def _get_ncbi_credentials() -> tuple[str, str]:
     secret_email = ""
     secret_api_key = ""
 
-    if "ncbi" in st.secrets:
-        ncbi_secrets = st.secrets["ncbi"]
-        secret_email = str(
-            ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or ""
-        ).strip()
-        secret_api_key = str(
-            ncbi_secrets.get("ncbi_api_key") or ncbi_secrets.get("api_key") or ""
-        ).strip()
-    else:
-        secret_email = str(st.secrets.get("ncbi_email", "") or "").strip()
-        secret_api_key = str(
-            st.secrets.get("ncbi_api_key", "") or st.secrets.get("api_key", "") or ""
-        ).strip()
+    try:
+        if "ncbi" in st.secrets:
+            ncbi_secrets = st.secrets["ncbi"]
+            secret_email = str(
+                ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or ""
+            ).strip()
+            secret_api_key = str(
+                ncbi_secrets.get("ncbi_api_key") or ncbi_secrets.get("api_key") or ""
+            ).strip()
+        else:
+            secret_email = str(st.secrets.get("ncbi_email", "") or "").strip()
+            secret_api_key = str(
+                st.secrets.get("ncbi_api_key", "") or st.secrets.get("api_key", "") or ""
+            ).strip()
+    except (FileNotFoundError, KeyError):
+        pass
 
     if secret_email:
         return secret_email, secret_api_key
