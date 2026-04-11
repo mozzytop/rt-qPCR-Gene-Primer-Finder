@@ -8,7 +8,6 @@ Hugging Face requires a specific metadata block at the very top of the `README.m
 ```yaml
 ---
 title: rt-qPCR Gene Primer Finder
-emoji: 🧬
 colorFrom: blue
 colorTo: green
 sdk: streamlit
@@ -66,7 +65,7 @@ jobs:
 *Note: Replace `YOUR_HF_USERNAME` and `YOUR_SPACE_NAME` with your actual details.*
 
 ## 4. Dependencies
-The application requires several Python libraries to function. Ensure that your `requirements.txt` file is present in the root directory and contains at least the following:
+This app requires several Python libraries to function. Double check that your `requirements.txt` file is present in the root directory and contains _at least_ the following:
 
 ```text
 streamlit
