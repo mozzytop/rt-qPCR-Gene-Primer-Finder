@@ -1,10 +1,3 @@
-# Deployment: Hugging Face Spaces
-
-I built this repo to run as a **Streamlit** SDK on Hugging Face Spaces. Follow these steps to host your own version of the Gene Primer Finder.
-
-## 1. Space Configuration (YAML Metadata)
-Hugging Face requires a specific metadata block at the very top of the `README.md` file in the root directory. **Ensure this block is the first thing in your file:**
-
 ```yaml
 ---
 title: rt-qPCR Gene Primer Finder
@@ -17,6 +10,13 @@ pinned: false
 license: gpl-3.0
 ---
 ```
+
+## Space Configuration (YAML Metadata)
+Hugging Face requires a specific metadata block at the very top of the `README.md` file in the root directory. **Ensure this block is the first thing in your file:**
+
+# 1. Deployment: Hugging Face Spaces
+
+I built this repo to run as a **Streamlit** SDK on Hugging Face Spaces. Follow these steps to host your own version of the Gene Primer Finder.
 
 ## 2. Setup on Hugging Face
 1. Create a [Hugging Face account](https://huggingface.co/join).
