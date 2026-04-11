@@ -16,6 +16,7 @@ Run with:
 
 from __future__ import annotations
 
+import os
 import re
 import textwrap
 from html import escape as html_escape
@@ -233,16 +234,27 @@ st.markdown(
 )
 
 def _has_secret_ncbi_credentials() -> bool:
-    """Return True when Streamlit secrets contain an NCBI email."""
+    """Return True when secrets contain an NCBI email.
+
+    Checks Streamlit secrets (secrets.toml) first, then falls back to
+    environment variables (used by HuggingFace Docker Spaces).
+    """
+    # 1. Try Streamlit secrets (secrets.toml)
     try:
         if "ncbi" in st.secrets:
             ncbi_secrets = st.secrets["ncbi"]
-            return bool(
-                str(ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or "").strip()
-            )
-        return bool(str(st.secrets.get("ncbi_email", "") or "").strip())
+            if str(ncbi_secrets.get("ncbi_email") or ncbi_secrets.get("email") or "").strip():
+                return True
+        if str(st.secrets.get("ncbi_email", "") or "").strip():
+            return True
     except (FileNotFoundError, KeyError):
-        return False
+        pass
+
+    # 2. Try environment variables (HuggingFace Spaces injects secrets as env vars)
+    if os.environ.get("NCBI_EMAIL", "").strip():
+        return True
+
+    return False
 
 
 # ── Sidebar config ───────────────────────────────────────────────────
@@ -304,10 +316,14 @@ for key, default in {
 
 
 def _get_ncbi_credentials() -> tuple[str, str]:
-    """Prefer Streamlit secrets when present, otherwise use manual sidebar input."""
+    """Resolve NCBI credentials from secrets or manual input.
+
+    Priority: Streamlit secrets > environment variables > sidebar input.
+    """
     secret_email = ""
     secret_api_key = ""
 
+    # 1. Try Streamlit secrets (secrets.toml)
     try:
         if "ncbi" in st.secrets:
             ncbi_secrets = st.secrets["ncbi"]
@@ -327,6 +343,12 @@ def _get_ncbi_credentials() -> tuple[str, str]:
 
     if secret_email:
         return secret_email, secret_api_key
+
+    # 2. Try environment variables (HuggingFace Spaces injects secrets as env vars)
+    env_email = os.environ.get("NCBI_EMAIL", "").strip()
+    env_api_key = os.environ.get("NCBI_API_KEY", "").strip()
+    if env_email:
+        return env_email, env_api_key
 
     manual_email = email.strip()
     manual_api_key = api_key.strip()
