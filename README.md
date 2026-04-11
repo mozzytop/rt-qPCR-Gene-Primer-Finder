@@ -1,35 +1,34 @@
-```yaml
 ---
 title: rt-qPCR Gene Primer Finder
 emoji: 🧬
 colorFrom: blue
 colorTo: green
-sdk: streamlit
-app_file: app.py
+sdk: docker
+app_port: 8501
 pinned: false
 license: gpl-3.0
 ---
-```
 
-## Space Configuration (YAML Metadata)
-Hugging Face requires a specific metadata block at the very top of the `README.md` file in the root directory. **Ensure this block is the first thing in your file:**
+# rt-qPCR Gene Primer Finder
 
-# 1. Deployment: Hugging Face Spaces
+A Streamlit-powered bioinformatics tool that automates gene sequence retrieval, PCR primer matching, and formatted report generation — deployed via Docker on Hugging Face Spaces.
 
-I built this repo to run as a **Streamlit** SDK on Hugging Face Spaces. Follow these steps to host your own version of the Gene Primer Finder.
+## Deployment: Hugging Face Spaces
 
-## 2. Setup on Hugging Face
+This repo is configured to run as a **Docker**-based Space on Hugging Face. The Streamlit SDK was deprecated on HF Spaces, so it now uses a Dockerfile that installs and runs Streamlit directly.
+
+### Setup on Hugging Face
 1. Create a [Hugging Face account](https://huggingface.co/join).
 2. Navigate to **Spaces** and click **Create New Space**.
-3. Name your Space (e.g., `gene-primer-finder`).
-4. Select **Streamlit** as the SDK.
+3. Name your Space (e.g., `PCR-Primer-Finder`).
+4. Select **Docker** as the SDK.
 5. Choose your preferred visibility (Public or Private).
 6. **Create Space**.
 
-## 3. Syncing the Repository
-You can deploy the code by either manually uploading the files or by setting up a GitHub Action to sync your the repo automatically.
+### Syncing the Repository
+You can deploy the code by either manually uploading the files or by setting up a GitHub Action to sync your repo automatically.
 
-### Option A: Automatic Sync (Recommended)
+#### Option A: Automatic Sync (Recommended)
 Updates Hugging Face Space every time you push to the `HuggingFace` branch on GitHub.
 
 1. **Generate a Hugging Face Token:**
@@ -40,37 +39,16 @@ Updates Hugging Face Space every time you push to the `HuggingFace` branch on Gi
    - Create a **New repository secret** named `HF_TOKEN`.
    - Paste your Hugging Face token here.
 3. **Configure the Workflow:**
-   - Create a folder named `.github/workflows` (if it doesn't exist).
-   - Create a file inside called `sync_to_hf.yml` and paste the following:
+   - The workflow file at `.github/workflows/sync_to_hf.yml` handles this automatically.
 
-```yaml
-name: Sync to Hugging Face Hub
-on:
-  push:
-    branches: [HuggingFace]
-  workflow_dispatch:
-
-jobs:
-  sync-to-hub:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          lfs: true
-      - name: Push to hub
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://YOUR_HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/YOUR_HF_USERNAME/YOUR_SPACE_NAME HuggingFace:main
-```
-*Note: Replace `YOUR_HF_USERNAME` and `YOUR_SPACE_NAME` with your actual details.*
-
-## 4. Dependencies
-This app requires several Python libraries to function. Double check that your `requirements.txt` file is present in the root directory and contains _at least_ the following:
+### Dependencies
+This app requires several Python libraries. The `requirements.txt` file contains all necessary dependencies:
 
 ```text
-streamlit
+streamlit>=1.35.0
+biopython>=1.83
 pandas
-biopython
 requests
 ```
+
+Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference

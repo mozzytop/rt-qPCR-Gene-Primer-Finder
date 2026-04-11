@@ -1,2 +1,4 @@
-biopython>=1.83
 streamlit>=1.35.0
+biopython>=1.83
+pandas
+requests
