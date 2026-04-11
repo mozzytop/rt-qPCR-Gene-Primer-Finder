@@ -1,5 +1,5 @@
 [README.md](https://github.com/user-attachments/files/26578760/README.md)
-# 🧬 RT-qPCR Gene Primer Finder
+# rt-qPCR Gene Primer Finder
 
 A Streamlit-powered bioinformatics automation tool that replaces a manual
 data-gathering workflow for gene sequence retrieval, PCR primer matching, and
@@ -28,8 +28,8 @@ formatted report generation.
 - Python 3.10+
 - An internet connection (for NCBI Entrez API calls)
 - An email address (NCBI API requirement)
-- *(Optional)* An NCBI API key to raise the rate limit from 3 → 10 requests/sec.
-  Register at <https://www.ncbi.nlm.nih.gov/account/>
+- *(Optional)* An NCBI Free API key to raise the rate limit from 3 → 10 requests/sec.
+  Make a free account and get a API key at <https://www.ncbi.nlm.nih.gov/account/>
 
 ## Installation
 
