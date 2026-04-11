@@ -78,59 +78,6 @@ gene-primer-tool/
 <img width="1465" height="748" alt="image" src="https://github.com/user-attachments/assets/1ab07136-17e4-4936-9b80-23169839f738" />
 <img width="1468" height="795" alt="image" src="https://github.com/user-attachments/assets/6bc47ae6-a916-493e-a1ab-2e836a10f867" />
 
----
-
-## 🔄 Keep-Awake (Streamlit Community Cloud)
-
-Streamlit Community Cloud puts apps to sleep after **12 hours of inactivity**.
-This project includes a GitHub Actions workflow that pings the app every **8 hours**
-to keep it alive automatically.
-
-### Setup Instructions
-
-#### Step 1 — Add the `APP_URL` Secret
-
-1. Go to your GitHub repository: **[github.com/mozzytop/rt-qPCR-Gene-Primer-Finder](https://github.com/mozzytop/rt-qPCR-Gene-Primer-Finder)**
-2. Click **Settings** (top navigation bar)
-3. In the left sidebar, expand **Secrets and variables** → click **Actions**
-4. Click the green **"New repository secret"** button
-5. Fill in:
-   - **Name:** `APP_URL`
-   - **Secret:** Your full Streamlit app URL (e.g. `https://rt-qpcr-gene-primer-finder.streamlit.app/`)
-6. Click **"Add secret"**
-
-> **Important:** The URL must include the trailing `/` and the `https://` prefix.
-
-#### Step 2 — Verify the Workflow is Active
-
-1. Go to the **Actions** tab in your GitHub repository
-2. You should see **"Keep Streamlit App Awake"** in the left sidebar
-3. The workflow runs automatically at **00:00, 08:00, and 16:00 UTC** every day
-4. You can also click **"Run workflow"** → **"Run workflow"** to trigger a manual ping
-
-#### Step 3 — Check Ping Results
-
-1. In the **Actions** tab, click on any **"Keep Streamlit App Awake"** run
-2. Click the **"keep-awake"** job
-3. Expand **"Ping Streamlit App"** to see the output:
-   ```
-   Pinging: https://your-app.streamlit.app/
-   Timestamp: 2026-04-07 16:00:00 UTC
-   HTTP Status: 200
-   App is awake and responding (HTTP 200)
-   ```
-
-### Schedule
-
-| Time (UTC) | Purpose |
-|-----------|---------|
-| 00:00 | Night ping |
-| 08:00 | Morning ping |
-| 16:00 | Afternoon ping |
-
-Every 8 hours ensures the 12-hour inactivity window is never reached.
-
----
 
 ## Notes on Primer Extraction
 
